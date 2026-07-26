@@ -2,7 +2,13 @@
 
 Scrapes Dominican news outlets into **SQLite + Chroma**, then exposes semantic search over MCP (`query_topic`).
 
-**Sources:** Somos Pueblo, El Nuevo Diario, Listín Diario, Diario Libre, Hoy, Acento.
+**Sources:** 
+    - Somos Pueblo
+    - El Nuevo Diario
+    - Listín Diario
+    - Diario Libre
+    - Hoy
+    - Acento
 
 ## Setup
 
@@ -38,28 +44,3 @@ After changing `EMBED_MODEL` in `config.py`:
 ```bash
 python reindex.py
 ```
-
-## Deploy
-
-Daily cron on a small VPS (Docker):
-
-- [DigitalOcean](deploy/digitalocean.md) (recommended)
-- [Oracle Always Free](deploy/oracle-cloud.md)
-
-```bash
-docker compose build
-docker compose run --rm ingest python ingestor.py --limit 2
-```
-
-Data lives in the `pipeline-data` volume (`DB_NAME` / `CHROMA_PATH` under `/data`).
-
-## Layout
-
-| Path | Role |
-|------|------|
-| `ingestor.py` | Discover + scrape + save |
-| `pipeline.py` | Date normalize + quality gates |
-| `db.py` | SQLite + Chroma upsert |
-| `mcp.py` | MCP server |
-| `providers/` | Per-outlet scrapers |
-| `config.py` | Paths, limits, embed model (env-overridable) |
