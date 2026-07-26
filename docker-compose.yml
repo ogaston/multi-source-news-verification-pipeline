@@ -1,0 +1,29 @@
+services:
+  ingest:
+    image: news-pipeline:latest
+    build: .
+    volumes:
+      - pipeline-data:/data
+    environment:
+      DB_NAME: /data/dominican_news_repository.db
+      CHROMA_PATH: /data/chroma_db
+      DATA_DIR: /data/debug_json
+      HF_HOME: /opt/hf_cache
+    command: ["python", "ingestor.py"]
+
+  mcp:
+    image: news-pipeline:latest
+    profiles: ["mcp"]
+    volumes:
+      - pipeline-data:/data
+    environment:
+      DB_NAME: /data/dominican_news_repository.db
+      CHROMA_PATH: /data/chroma_db
+      DATA_DIR: /data/debug_json
+      HF_HOME: /opt/hf_cache
+    stdin_open: true
+    tty: true
+    command: ["python", "mcp.py"]
+
+volumes:
+  pipeline-data:

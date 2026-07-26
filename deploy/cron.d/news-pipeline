@@ -1,0 +1,6 @@
+# Daily Dominican news ingest (UTC). Requires docker group or root.
+SHELL=/bin/bash
+PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+APP_DIR=/opt/news-extraction-pipeline
+
+0 6 * * * root /usr/local/bin/news-daily-ingest
