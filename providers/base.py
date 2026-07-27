@@ -8,10 +8,12 @@ from crawl4ai.content_filter_strategy import PruningContentFilter
 from crawl4ai.markdown_generation_strategy import DefaultMarkdownGenerator
 from crawl4ai.models import CrawlResult
 
+from sources import NewsSource
+
 
 class BaseNewsProvider(ABC):
     base_url: str
-    source: str
+    source: NewsSource
     css_selector: str
 
     def __init__(self, crawler: AsyncWebCrawler):
@@ -38,7 +40,7 @@ class BaseNewsProvider(ABC):
     def build_article(self, url: str, result: CrawlResult) -> dict:
         return {
             "url": url,
-            "source": self.source,
+            "source": self.source.value,
             "title": self.get_title(result),
             "content": self.get_content(result),
             "date": self.get_date(result),
@@ -59,7 +61,7 @@ class BaseNewsProvider(ABC):
 
     async def run(self, url: str) -> dict | None:
         result = await self.crawler.arun(
-            url=url, config=self.crawl_config(), source=self.source
+            url=url, config=self.crawl_config(), source=self.source.value
         )
         if result.success and result.markdown:
             return self.build_article(url, result)
@@ -68,5 +70,5 @@ class BaseNewsProvider(ABC):
     async def prefetch(self) -> CrawlResult:
         config = CrawlerRunConfig(prefetch=True)
         return await self.crawler.arun(
-            url=self.base_url, config=config, source=self.source
+            url=self.base_url, config=config, source=self.source.value
         )

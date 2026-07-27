@@ -2,11 +2,12 @@ from bs4 import BeautifulSoup
 from crawl4ai.models import CrawlResult
 
 from providers.base import BaseNewsProvider
+from sources import NewsSource
 
 
 class ElNuevoDiarioProvider(BaseNewsProvider):
     base_url = "https://elnuevodiario.com.do"
-    source = "El Nuevo Diario"
+    source = NewsSource.EL_NUEVO_DIARIO
     css_selector = "article.noticia-detalle"
 
     def get_author(self, result: CrawlResult) -> str:

@@ -12,6 +12,7 @@ from config import DATA_DIR, DEFAULT_URL_LIMIT
 from db import existing_urls, init_db, save_news
 from pipeline import prepare_article
 from providers import NEWS_PROVIDERS
+from sources import NewsSource
 
 
 def save_in_json(content: dict, url: str) -> str:
@@ -24,7 +25,7 @@ def save_in_json(content: dict, url: str) -> str:
     return path
 
 
-async def discover_news(crawler: AsyncWebCrawler, source: str) -> list[str]:
+async def discover_news(crawler: AsyncWebCrawler, source: NewsSource) -> list[str]:
     """Discover news from a target URL"""
     provider = NEWS_PROVIDERS[source](crawler)
 
@@ -46,7 +47,9 @@ async def discover_news(crawler: AsyncWebCrawler, source: str) -> list[str]:
     return list(discovered_urls)
 
 
-async def scrape_news(crawler: AsyncWebCrawler, url: str, source: str) -> dict | None:
+async def scrape_news(
+    crawler: AsyncWebCrawler, url: str, source: NewsSource
+) -> dict | None:
     """Scrape news from a URL"""
     print(f"Scraping news from source: {source} from URL: {url}")
     provider = NEWS_PROVIDERS[source](crawler)
@@ -60,7 +63,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument(
         "--source",
         action="append",
-        choices=sorted(NEWS_PROVIDERS.keys()),
+        choices=sorted(s.value for s in NewsSource),
         help="Outlet to scrape (repeatable). Default: all providers.",
     )
     parser.add_argument(
@@ -78,7 +81,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
 
 
 async def run_ingest(
-    sources: list[str],
+    sources: list[NewsSource],
     limit: int,
     write_json: bool = False,
 ) -> None:
@@ -118,7 +121,11 @@ async def run_ingest(
 
 async def main(argv: list[str] | None = None) -> None:
     args = parse_args(argv)
-    sources = args.source or list(NEWS_PROVIDERS.keys())
+    sources = (
+        [NewsSource(s) for s in args.source]
+        if args.source
+        else list(NEWS_PROVIDERS.keys())
+    )
     await run_ingest(sources=sources, limit=args.limit, write_json=args.write_json)
 
 

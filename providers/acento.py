@@ -5,11 +5,12 @@ from bs4 import BeautifulSoup
 from crawl4ai.models import CrawlResult
 
 from providers.base import BaseNewsProvider
+from sources import NewsSource
 
 
 class AcentoProvider(BaseNewsProvider):
     base_url = "https://acento.com.do"
-    source = "Acento"
+    source = NewsSource.ACENTO
     css_selector = "article#mainArticle"
 
     def get_author(self, result: CrawlResult) -> str:
