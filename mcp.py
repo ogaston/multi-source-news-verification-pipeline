@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import sqlite3
 from datetime import datetime, timedelta, timezone
 
@@ -19,7 +20,11 @@ from config import (
 )
 from pipeline import normalize_date
 
-mcp = FastMCP("dominican_news_repository")
+MCP_HOST = os.environ.get("MCP_HOST", "127.0.0.1")
+MCP_PORT = int(os.environ.get("MCP_PORT", "8000"))
+MCP_TRANSPORT = os.environ.get("MCP_TRANSPORT", "stdio")
+
+mcp = FastMCP("dominican_news_repository", host=MCP_HOST, port=MCP_PORT)
 
 
 def query_db(sql: str, params: tuple) -> list[sqlite3.Row]:
@@ -119,5 +124,13 @@ def query_topic(
 
 
 if __name__ == "__main__":
-    print("Starting MCP server...")
-    mcp.run()
+    allowed = ("stdio", "sse", "streamable-http")
+    if MCP_TRANSPORT not in allowed:
+        raise SystemExit(
+            f"Unknown MCP_TRANSPORT={MCP_TRANSPORT!r}; expected one of {allowed}"
+        )
+    print(
+        f"Starting MCP server transport={MCP_TRANSPORT} "
+        f"host={MCP_HOST} port={MCP_PORT}..."
+    )
+    mcp.run(transport=MCP_TRANSPORT)

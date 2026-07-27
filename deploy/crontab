@@ -1,0 +1,2 @@
+# Daily ingest at 06:00 America/Santo_Domingo
+0 6 * * * python /app/ingestor.py

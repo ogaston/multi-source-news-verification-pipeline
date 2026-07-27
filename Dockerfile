@@ -17,6 +17,7 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates \
     curl \
+    tzdata \
     libnss3 \
     libnspr4 \
     libatk1.0-0 \
@@ -39,6 +40,14 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libxext6 \
     fonts-liberation \
     && rm -rf /var/lib/apt/lists/*
+
+# supercronic: cron-like runner for the ingest-scheduler container
+ARG TARGETARCH=amd64
+ARG SUPERCRONIC_VERSION=v0.2.33
+RUN curl -fsSL \
+      "https://github.com/aptible/supercronic/releases/download/${SUPERCRONIC_VERSION}/supercronic-linux-${TARGETARCH}" \
+      -o /usr/local/bin/supercronic \
+    && chmod +x /usr/local/bin/supercronic
 
 WORKDIR /app
 

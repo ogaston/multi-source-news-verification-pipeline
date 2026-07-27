@@ -1,29 +1,64 @@
 services:
-  ingest:
-    image: news-pipeline:latest
-    build: .
-    volumes:
-      - pipeline-data:/data
-    environment:
-      DB_NAME: /data/dominican_news_repository.db
-      CHROMA_PATH: /data/chroma_db
-      DATA_DIR: /data/debug_json
-      HF_HOME: /opt/hf_cache
-    command: ["python", "ingestor.py"]
-
+  # Always-on MCP (streamable HTTP) behind Traefik
   mcp:
+    build: .
     image: news-pipeline:latest
-    profiles: ["mcp"]
-    volumes:
-      - pipeline-data:/data
+    container_name: news-pipeline-mcp
+    restart: unless-stopped
+    env_file:
+      - .env
     environment:
       DB_NAME: /data/dominican_news_repository.db
       CHROMA_PATH: /data/chroma_db
       DATA_DIR: /data/debug_json
       HF_HOME: /opt/hf_cache
-    stdin_open: true
-    tty: true
+      MCP_HOST: 0.0.0.0
+      MCP_PORT: ${MCP_PORT:-8000}
+      MCP_TRANSPORT: streamable-http
+    volumes:
+      - pipeline-data:/data
+    networks:
+      - proxy
+    labels:
+      - traefik.enable=true
+      - traefik.docker.network=proxy
+      - traefik.http.routers.news-mcp.rule=Host(`${MCP_DOMAIN}`)
+      - traefik.http.routers.news-mcp.entrypoints=web
+      - traefik.http.services.news-mcp.loadbalancer.server.port=${MCP_PORT:-8000}
     command: ["python", "mcp.py"]
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "python -c \"import socket; s=socket.create_connection(('127.0.0.1', int(__import__('os').environ.get('MCP_PORT','8000'))), 2); s.close()\"",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
+  # Always-on scheduler: daily ingest via supercronic (06:00 America/Santo_Domingo)
+  ingest-scheduler:
+    build: .
+    image: news-pipeline:latest
+    container_name: news-pipeline-ingest
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      DB_NAME: /data/dominican_news_repository.db
+      CHROMA_PATH: /data/chroma_db
+      DATA_DIR: /data/debug_json
+      HF_HOME: /opt/hf_cache
+      TZ: America/Santo_Domingo
+    volumes:
+      - pipeline-data:/data
+    command: ["supercronic", "/app/deploy/crontab"]
 
 volumes:
   pipeline-data:
+    driver: local
+
+networks:
+  proxy:
+    external: true
