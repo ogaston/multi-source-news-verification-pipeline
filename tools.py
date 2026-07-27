@@ -7,6 +7,9 @@ from datetime import datetime, timedelta, timezone
 from config import (
     DEFAULT_DAYS_BACK,
     DEFAULT_QUERY_LIMIT,
+    MAX_DAYS_BACK,
+    MAX_QUERY_LIMIT,
+    MAX_TOPIC_LENGTH,
     QUERY_CANDIDATE_MIN,
     QUERY_CANDIDATE_MULTIPLIER,
 )
@@ -25,8 +28,9 @@ def run_query_topic(
     days_back: int = DEFAULT_DAYS_BACK,
     source: NewsSource | None = None,
 ) -> str:
-    limit = max(1, limit)
-    days_back = max(0, days_back)
+    topic = (topic or "")[:MAX_TOPIC_LENGTH]
+    limit = min(MAX_QUERY_LIMIT, max(1, limit))
+    days_back = min(MAX_DAYS_BACK, max(0, days_back))
     date_threshold = datetime.now(timezone.utc) - timedelta(days=days_back)
 
     n_results = max(QUERY_CANDIDATE_MIN, limit * QUERY_CANDIDATE_MULTIPLIER)

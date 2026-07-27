@@ -13,7 +13,8 @@ _vector_collection = None
 
 
 def query_db(sql: str, params: tuple) -> list[sqlite3.Row]:
-    with sqlite3.connect(DB_NAME) as conn:
+    # Read-only URI so the MCP query path cannot write even if a bug appears later.
+    with sqlite3.connect(f"file:{DB_NAME}?mode=ro", uri=True) as conn:
         conn.row_factory = sqlite3.Row
         cursor = conn.cursor()
         cursor.execute(sql, params)

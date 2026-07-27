@@ -15,6 +15,7 @@ services:
       MCP_HOST: 0.0.0.0
       MCP_PORT: ${MCP_PORT:-8000}
       MCP_TRANSPORT: streamable-http
+      MCP_API_KEY: ${MCP_API_KEY:-5cfb757b93c423b4bd8fcc6c65a5139304978503d5a1be38}
     volumes:
       - pipeline-data:/data
     networks:

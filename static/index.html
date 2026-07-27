@@ -1,0 +1,91 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Dominican News Repository MCP</title>
+  <style>
+    :root {
+      --bg: #0f1419;
+      --fg: #e7ecf1;
+      --muted: #9aa7b5;
+      --accent: #5b9fd4;
+      --rule: #243041;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      min-height: 100vh;
+      font-family: "IBM Plex Sans", "Segoe UI", sans-serif;
+      background:
+        radial-gradient(ellipse 80% 50% at 20% 0%, #1a2a3a 0%, transparent 55%),
+        var(--bg);
+      color: var(--fg);
+      line-height: 1.5;
+    }
+    main {
+      max-width: 38rem;
+      margin: 0 auto;
+      padding: 3rem 1.25rem;
+    }
+    h1 {
+      font-size: 1.6rem;
+      font-weight: 600;
+      letter-spacing: -0.02em;
+      margin: 0 0 0.75rem;
+    }
+    p { margin: 0 0 1rem; color: var(--muted); }
+    code {
+      font-family: "IBM Plex Mono", ui-monospace, monospace;
+      font-size: 0.9em;
+      color: var(--accent);
+    }
+    ul {
+      margin: 0 0 1.25rem;
+      padding-left: 1.15rem;
+      color: var(--muted);
+    }
+    li { margin-bottom: 0.35rem; }
+    hr {
+      border: 0;
+      border-top: 1px solid var(--rule);
+      margin: 1.5rem 0;
+    }
+    .endpoint {
+      display: inline-block;
+      padding: 0.35rem 0.65rem;
+      border: 1px solid var(--rule);
+      border-radius: 4px;
+      background: #16202b;
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>Dominican News Repository</h1>
+    <p>
+      MCP server for semantic search over Dominican news outlets. Point an MCP client at the streamable HTTP endpoint below.
+    </p>
+
+
+    <p class="endpoint">MCP endpoint: <code>/mcp</code></p>
+    <p>
+      Auth header:
+      <code>Authorization: Bearer 5cfb757b93c423b4bd8fcc6c65a5139304978503d5a1be38</code>
+    </p>
+
+    <hr />
+
+    <p><strong style="color: var(--fg);">Tools</strong></p>
+    <ul>
+      <li><code>query_topic</code> — search articles by topic (optional source / date window)</li>
+    </ul>
+
+    <p><strong style="color: var(--fg);">Resources</strong></p>
+    <ul>
+      <li><code>news://sources</code> — outlet catalog (JSON)</li>
+      <li><code>news://{source_id}/frontpage</code> — recent articles for one outlet</li>
+    </ul>
+  </main>
+</body>
+</html>
