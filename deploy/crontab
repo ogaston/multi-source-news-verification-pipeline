@@ -1,2 +1,2 @@
-# Daily ingest at 06:00 America/Santo_Domingo
+# Daily ingest at 06:00 America/Santo_Domingo (set TZ on the container).
 0 6 * * * python /app/ingestor.py

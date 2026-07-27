@@ -34,8 +34,8 @@ Incremental: URLs already in SQLite are skipped.
 Local stdio (dev):
 
 ```bash
-mcp dev mcp.py
-# or: MCP_TRANSPORT=stdio python mcp.py
+mcp dev mcp_server.py
+# or: MCP_TRANSPORT=stdio python mcp_server.py
 ```
 
 Tool: `query_topic(topic, limit=5, days_back=7, source=None)`.

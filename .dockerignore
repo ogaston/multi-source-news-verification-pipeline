@@ -12,6 +12,5 @@ https:__*.json
 .pytest_cache
 .mypy_cache
 ROADMAP.md
-deploy
 *.md
 !requirements.txt

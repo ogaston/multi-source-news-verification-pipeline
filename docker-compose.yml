@@ -25,7 +25,7 @@ services:
       - traefik.http.routers.news-mcp.rule=Host(`${MCP_DOMAIN}`)
       - traefik.http.routers.news-mcp.entrypoints=web
       - traefik.http.services.news-mcp.loadbalancer.server.port=${MCP_PORT:-8000}
-    command: ["python", "mcp.py"]
+    command: ["python", "mcp_server.py"]
     healthcheck:
       test:
         [
