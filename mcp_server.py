@@ -5,6 +5,7 @@ import os
 from mcp.server.fastmcp import FastMCP
 
 from config import DEFAULT_DAYS_BACK, DEFAULT_QUERY_LIMIT
+from resources import get_source_frontpage, list_sources_json
 from sources import NewsSource
 from tools import run_query_topic
 
@@ -42,6 +43,26 @@ def query_topic(
         source: Optional outlet name filter (e.g. "Acento", "Listin Diario").
     """
     return run_query_topic(topic, limit, days_back, source)
+
+
+@mcp.resource(
+    "news://sources",
+    name="sources",
+    description="Catalog of Dominican news outlets",
+    mime_type="application/json",
+)
+def sources_resource():
+    return list_sources_json()
+
+
+@mcp.resource(
+    "news://{source_id}/frontpage",
+    name="source_frontpage",
+    description="Last 1 day of articles for a news outlet as a text document",
+    mime_type="text/plain",
+)
+def source_frontpage(source_id: str) -> str:
+    return get_source_frontpage(source_id)
 
 
 if __name__ == "__main__":

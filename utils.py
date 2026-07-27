@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import sqlite3
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 
 from config import CHROMA_COLLECTION, CHROMA_PATH, DB_NAME, EMBED_MODEL
 from pipeline import normalize_date
@@ -87,3 +87,31 @@ def format_rag_context(topic: str, rows: list[sqlite3.Row]) -> str:
         context += f"CONTENT EXCERPT:\n{row['content'][:2500]}...\n"
         context += "-" * 40 + "\n\n"
     return context
+
+
+def load_source_articles(
+    source: NewsSource, *, days_back: int = 1
+) -> list[sqlite3.Row]:
+    threshold = datetime.now(timezone.utc) - timedelta(days=max(0, days_back))
+    return query_db(
+        """
+        SELECT id, source, title, date, content, url
+        FROM news
+        WHERE source = ? AND date >= ?
+        ORDER BY date DESC
+        """,
+        (source.value, threshold.isoformat()),
+    )
+
+
+def format_frontpage(source: NewsSource, rows: list[sqlite3.Row]) -> str:
+    header = f"--- FRONTPAGE: {source.value} (last 1 day) ---\n\n"
+    body = ""
+    for row in rows:
+        body += f"SOURCE: {row['source']}\n"
+        body += f"DATE: {row['date']}\n"
+        body += f"HEADLINE: {row['title']}\n"
+        body += f"URL: {row['url']}\n"
+        body += f"CONTENT:\n{row['content']}\n"
+        body += "-" * 40 + "\n\n"
+    return header + body
