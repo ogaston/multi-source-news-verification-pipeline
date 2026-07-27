@@ -43,7 +43,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 # supercronic: cron-like runner for the ingest-scheduler container
 ARG TARGETARCH=amd64
-ARG SUPERCRONIC_VERSION=v0.2.33
+ARG SUPERCRONIC_VERSION=v0.2.36
 RUN curl -fsSL \
       "https://github.com/aptible/supercronic/releases/download/${SUPERCRONIC_VERSION}/supercronic-linux-${TARGETARCH}" \
       -o /usr/local/bin/supercronic \

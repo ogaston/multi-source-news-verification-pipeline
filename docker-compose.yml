@@ -53,7 +53,7 @@ services:
       TZ: America/Santo_Domingo
     volumes:
       - pipeline-data:/data
-    command: ["supercronic", "/app/deploy/crontab"]
+    command: ["/usr/local/bin/supercronic", "/app/deploy/crontab"]
 
 volumes:
   pipeline-data:
