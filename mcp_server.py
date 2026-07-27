@@ -4,7 +4,7 @@ import os
 from pathlib import Path
 
 from mcp.server.fastmcp import FastMCP
-from mcp.types import PromptReference
+from mcp.types import Completion, PromptReference
 from starlette.requests import Request
 from starlette.responses import HTMLResponse
 
@@ -77,8 +77,8 @@ def source_frontpage(source_id: str) -> str:
     return get_source_frontpage(source_id)
 
 
-@mcp.completion
-def complete(ref, argument, context):
+@mcp.completion()
+async def complete(ref, argument, context):
     """
     Provide argument completion for tool parameters.
 
@@ -89,7 +89,8 @@ def complete(ref, argument, context):
             sources = list_sources_json()
             source_names = [src["name"] for src in sources]
             partial = argument.value.lower() if argument.value else ""
-            return [s for s in source_names if s.lower().startswith(partial)]
+            values = [s for s in source_names if s.lower().startswith(partial)]
+            return Completion(values=values)
     return None
 
 
