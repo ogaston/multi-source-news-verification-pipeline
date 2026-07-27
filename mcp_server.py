@@ -10,6 +10,7 @@ from starlette.responses import HTMLResponse
 
 from auth import load_auth_from_env
 from config import DEFAULT_DAYS_BACK, DEFAULT_QUERY_LIMIT
+from prompt import run_get_last_week
 from resources import get_source_frontpage, list_sources_json
 from sources import NewsSource
 from tools import run_query_topic
@@ -77,14 +78,26 @@ def source_frontpage(source_id: str) -> str:
     return get_source_frontpage(source_id)
 
 
+@mcp.prompt(
+    name="get_last_week",
+    description="Last 7 days of articles from a Dominican news outlet",
+)
+def get_last_week(source: NewsSource) -> str:
+    """
+    Args:
+        source: News outlet name (e.g. "Acento", "Listin Diario").
+    """
+    return run_get_last_week(source)
+
+
 @mcp.completion()
 async def complete(ref, argument, context):
     """
-    Provide argument completion for tool parameters.
+    Provide argument completion for prompt parameters.
 
     Suggests news source names as users type the 'source' parameter.
     """
-    if isinstance(ref, PromptReference) and ref.name == "query_topic":
+    if isinstance(ref, PromptReference) and ref.name == "get_last_week":
         if argument.name == "source":
             sources = list_sources_json()
             source_names = [src["name"] for src in sources]

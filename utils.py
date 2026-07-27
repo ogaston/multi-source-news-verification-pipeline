@@ -105,8 +105,11 @@ def load_source_articles(
     )
 
 
-def format_frontpage(source: NewsSource, rows: list[sqlite3.Row]) -> str:
-    header = f"--- FRONTPAGE: {source.value} (last 1 day) ---\n\n"
+def format_frontpage(
+    source: NewsSource, rows: list[sqlite3.Row], *, days_back: int = 1
+) -> str:
+    day_label = "day" if days_back == 1 else "days"
+    header = f"--- FRONTPAGE: {source.value} (last {days_back} {day_label}) ---\n\n"
     body = ""
     for row in rows:
         body += f"SOURCE: {row['source']}\n"
