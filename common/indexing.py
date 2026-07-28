@@ -17,11 +17,14 @@ from common.config import (
     CHUNK_OVERLAP,
     CHUNK_SIZE,
     EMBED_MODEL,
+    STORY_CHROMA_COLLECTION,
 )
 
 _embed_model: HuggingFaceEmbedding | None = None
 _vector_store: ChromaVectorStore | None = None
 _index: VectorStoreIndex | None = None
+_story_vector_store: ChromaVectorStore | None = None
+_story_index: VectorStoreIndex | None = None
 _splitter: SentenceSplitter | None = None
 
 
@@ -35,6 +38,14 @@ class RetrievedChunk:
     title: str
     date: str
     chunk_index: int
+
+
+@dataclass(frozen=True)
+class RetrievedStory:
+    cluster_id: str
+    description: str
+    score: float
+    created_at: str
 
 
 def _get_embed_model() -> HuggingFaceEmbedding:
@@ -69,6 +80,10 @@ def _get_chroma_collection():
     return _chroma_client().get_or_create_collection(name=CHROMA_COLLECTION)
 
 
+def _get_story_chroma_collection():
+    return _chroma_client().get_or_create_collection(name=STORY_CHROMA_COLLECTION)
+
+
 def get_vector_store() -> ChromaVectorStore:
     global _vector_store
     if _vector_store is None:
@@ -90,11 +105,36 @@ def get_index() -> VectorStoreIndex:
     return _index
 
 
+def get_story_vector_store() -> ChromaVectorStore:
+    global _story_vector_store
+    if _story_vector_store is None:
+        _story_vector_store = ChromaVectorStore(
+            chroma_collection=_get_story_chroma_collection()
+        )
+    return _story_vector_store
+
+
+def get_story_index() -> VectorStoreIndex:
+    global _story_index
+    if _story_index is None:
+        storage_context = StorageContext.from_defaults(
+            vector_store=get_story_vector_store()
+        )
+        _story_index = VectorStoreIndex.from_vector_store(
+            get_story_vector_store(),
+            storage_context=storage_context,
+            embed_model=_get_embed_model(),
+        )
+    return _story_index
+
+
 def reset_index_cache() -> None:
     """Clear cached store/index (e.g. after deleting the collection)."""
-    global _vector_store, _index
+    global _vector_store, _index, _story_vector_store, _story_index
     _vector_store = None
     _index = None
+    _story_vector_store = None
+    _story_index = None
 
 
 def delete_collection() -> bool:
@@ -102,6 +142,18 @@ def delete_collection() -> bool:
     client = _chroma_client()
     try:
         client.delete_collection(CHROMA_COLLECTION)
+        reset_index_cache()
+        return True
+    except Exception:
+        reset_index_cache()
+        return False
+
+
+def delete_story_index() -> bool:
+    """Delete the story Chroma collection if it exists. Returns True if deleted."""
+    client = _chroma_client()
+    try:
+        client.delete_collection(STORY_CHROMA_COLLECTION)
         reset_index_cache()
         return True
     except Exception:
@@ -195,3 +247,52 @@ def retrieve_chunks(topic: str, n_results: int) -> list[RetrievedChunk]:
             )
         )
     return chunks
+
+
+def index_story(cluster_id: str, description: str, created_at: str) -> None:
+    """Upsert one vector document per story description."""
+    text = (description or "").strip()
+    if not text:
+        return
+
+    collection = _get_story_chroma_collection()
+    try:
+        collection.delete(ids=[cluster_id])
+    except Exception:
+        pass
+
+    from llama_index.core.schema import TextNode
+
+    node = TextNode(
+        text=text,
+        id_=cluster_id,
+        metadata={
+            "cluster_id": cluster_id,
+            "created_at": created_at or "",
+        },
+    )
+    get_story_index().insert_nodes([node])
+
+
+def retrieve_stories(query: str, n_results: int) -> list[RetrievedStory]:
+    """Semantic retrieve of story descriptions (ranked)."""
+    if n_results < 1:
+        return []
+    retriever = get_story_index().as_retriever(similarity_top_k=n_results)
+    results = retriever.retrieve(query)
+    stories: list[RetrievedStory] = []
+    for node_with_score in results:
+        node = node_with_score.node
+        meta = node.metadata or {}
+        cluster_id = str(meta.get("cluster_id") or node.node_id or "")
+        if not cluster_id:
+            continue
+        stories.append(
+            RetrievedStory(
+                cluster_id=cluster_id,
+                description=node.get_content() or "",
+                score=float(node_with_score.score or 0.0),
+                created_at=str(meta.get("created_at") or ""),
+            )
+        )
+    return stories

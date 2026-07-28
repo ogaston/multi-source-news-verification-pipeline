@@ -1,6 +1,6 @@
 # News extraction pipeline
 
-Scrapes Dominican news outlets into **SQLite + Chroma +  LlamaIndex chunked index**, then exposes semantic search over MCP (`query_topic`).
+Scrapes Dominican news outlets into **SQLite + Chroma +  LlamaIndex chunked index**, then exposes semantic search over MCP (`search_articles`, `search_story`).
 
 **Sources:** 
 - Somos Pueblo
@@ -40,9 +40,12 @@ mcp dev mcp_app/server.py
 # or: MCP_TRANSPORT=stdio python -m mcp_app.server
 ```
 
-Tool: `query_topic(topic, limit=5, days_back=7, source=None)`.
+Tools:
 
-Returns the best matching **chunk** per article (plus source, date, headline, URL). Articles are split with LlamaIndex `SentenceSplitter` (`CHUNK_SIZE=512`, `CHUNK_OVERLAP=64`) into Chroma collection `news_index_v2`.
+- `search_articles(query, limit=5, days_back=7, source=None)` — semantic search across all articles. Returns the best matching **chunk** per article (plus source, date, headline, URL).
+- `search_story(query, limit=5, days_back=7, source=None)` — semantic search across story descriptions; returns matching stories with their member articles.
+
+Articles are split with LlamaIndex `SentenceSplitter` (`CHUNK_SIZE=512`, `CHUNK_OVERLAP=64`) into Chroma collection `news_index_v2`. Story descriptions are indexed in `story_index`.
 
 ## Security (HTTP transports)
 

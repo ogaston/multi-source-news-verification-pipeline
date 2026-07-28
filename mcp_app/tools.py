@@ -13,27 +13,33 @@ from common.config import (
     QUERY_CANDIDATE_MIN,
     QUERY_CANDIDATE_MULTIPLIER,
 )
-from common.indexing import retrieve_chunks
+from common.db import fetch_cluster_articles
+from common.indexing import retrieve_chunks, retrieve_stories
 from common.sources import NewsSource
-from mcp_app.utils import filter_ranked_chunks, format_rag_context
+from mcp_app.utils import (
+    filter_ranked_chunks,
+    filter_ranked_stories,
+    format_rag_context,
+    format_story_context,
+)
 
 
-def run_query_topic(
-    topic: str,
+def run_search_articles(
+    query: str,
     limit: int = DEFAULT_QUERY_LIMIT,
     days_back: int = DEFAULT_DAYS_BACK,
     source: NewsSource | None = None,
 ) -> str:
-    topic = (topic or "")[:MAX_TOPIC_LENGTH]
+    query = (query or "")[:MAX_TOPIC_LENGTH]
     limit = min(MAX_QUERY_LIMIT, max(1, limit))
     days_back = min(MAX_DAYS_BACK, max(0, days_back))
     date_threshold = datetime.now(timezone.utc) - timedelta(days=days_back)
 
     n_results = max(QUERY_CANDIDATE_MIN, limit * QUERY_CANDIDATE_MULTIPLIER)
-    chunks = retrieve_chunks(topic, n_results=n_results)
+    chunks = retrieve_chunks(query, n_results=n_results)
 
     if not chunks:
-        return f"No semantically relevant news found for topic: '{topic}'."
+        return f"No semantically relevant news found for query: '{query}'."
 
     filtered = filter_ranked_chunks(
         chunks,
@@ -46,6 +52,40 @@ def run_query_topic(
         scope = f"last {days_back} days"
         if source:
             scope += f", source={source.value}"
-        return f"No semantically relevant news found for topic: '{topic}' ({scope})."
+        return f"No semantically relevant news found for query: '{query}' ({scope})."
 
-    return format_rag_context(topic, filtered)
+    return format_rag_context(query, filtered)
+
+
+def run_search_story(
+    query: str,
+    limit: int = DEFAULT_QUERY_LIMIT,
+    days_back: int = DEFAULT_DAYS_BACK,
+    source: NewsSource | None = None,
+) -> str:
+    query = (query or "")[:MAX_TOPIC_LENGTH]
+    limit = min(MAX_QUERY_LIMIT, max(1, limit))
+    days_back = min(MAX_DAYS_BACK, max(0, days_back))
+    date_threshold = datetime.now(timezone.utc) - timedelta(days=days_back)
+
+    n_results = max(QUERY_CANDIDATE_MIN, limit * QUERY_CANDIDATE_MULTIPLIER)
+    stories = retrieve_stories(query, n_results=n_results)
+
+    if not stories:
+        return f"No semantically relevant stories found for query: '{query}'."
+
+    filtered = filter_ranked_stories(
+        stories,
+        fetch_articles=fetch_cluster_articles,
+        date_threshold=date_threshold,
+        source=source,
+        limit=limit,
+    )
+
+    if not filtered:
+        scope = f"last {days_back} days"
+        if source:
+            scope += f", source={source.value}"
+        return f"No semantically relevant stories found for query: '{query}' ({scope})."
+
+    return format_story_context(query, filtered)

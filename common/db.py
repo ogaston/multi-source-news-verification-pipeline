@@ -6,6 +6,33 @@ from common.config import DB_NAME, PREPROCESS_BATCH_SIZE
 from common.indexing import index_article
 
 
+def _table_columns(conn: sqlite3.Connection, table: str) -> set[str]:
+    rows = conn.execute(f"PRAGMA table_info({table})").fetchall()
+    return {row[1] for row in rows}
+
+
+def _migrate_topic_clusters_drop_description(conn: sqlite3.Connection) -> None:
+    """Rebuild topic_clusters without description if an older schema is present."""
+    columns = _table_columns(conn, "topic_clusters")
+    if not columns or "description" not in columns:
+        return
+    conn.execute("""
+        CREATE TABLE topic_clusters_new (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            cluster_id TEXT NOT NULL,
+            article_id TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            UNIQUE(cluster_id, article_id)
+        )
+    """)
+    conn.execute("""
+        INSERT INTO topic_clusters_new (cluster_id, article_id, created_at)
+        SELECT cluster_id, article_id, created_at FROM topic_clusters
+    """)
+    conn.execute("DROP TABLE topic_clusters")
+    conn.execute("ALTER TABLE topic_clusters_new RENAME TO topic_clusters")
+
+
 def init_db():
     conn = sqlite3.connect(DB_NAME)
     conn.execute("""
@@ -27,11 +54,19 @@ def init_db():
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             cluster_id TEXT NOT NULL,
             article_id TEXT NOT NULL,
-            description TEXT,
             created_at TEXT NOT NULL,
             UNIQUE(cluster_id, article_id)
         )
     """)
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS clusters (
+            cluster_id TEXT PRIMARY KEY,
+            description TEXT,
+            created_at TEXT NOT NULL
+        )
+    """)
+    _migrate_topic_clusters_drop_description(conn)
+    conn.commit()
     conn.close()
 
 
@@ -162,11 +197,11 @@ def mark_articles_processed(ids: list[str]) -> None:
 
 
 def insert_topic_cluster_rows(
-    rows: list[tuple[str, str, str | None, str]],
+    rows: list[tuple[str, str, str]],
 ) -> None:
     """
     Insert topic cluster memberships.
-    Each row is (cluster_id, article_id, description, created_at).
+    Each row is (cluster_id, article_id, created_at).
     """
     if not rows:
         return
@@ -174,9 +209,85 @@ def insert_topic_cluster_rows(
         conn.executemany(
             """
             INSERT OR IGNORE INTO topic_clusters
-                (cluster_id, article_id, description, created_at)
-            VALUES (?, ?, ?, ?)
+                (cluster_id, article_id, created_at)
+            VALUES (?, ?, ?)
             """,
             rows,
         )
         conn.commit()
+
+
+def insert_clusters(
+    rows: list[tuple[str, str | None, str]],
+) -> None:
+    """
+    Insert cluster metadata rows.
+    Each row is (cluster_id, description, created_at).
+    """
+    if not rows:
+        return
+    with sqlite3.connect(DB_NAME) as conn:
+        conn.executemany(
+            """
+            INSERT OR IGNORE INTO clusters
+                (cluster_id, description, created_at)
+            VALUES (?, ?, ?)
+            """,
+            rows,
+        )
+        conn.commit()
+
+
+def update_cluster_description(cluster_id: str, description: str) -> None:
+    with sqlite3.connect(DB_NAME) as conn:
+        conn.execute(
+            "UPDATE clusters SET description = ? WHERE cluster_id = ?",
+            (description, cluster_id),
+        )
+        conn.commit()
+
+
+def fetch_cluster_articles(cluster_id: str) -> list[dict]:
+    """Return member articles (title/content/source/date) for a cluster."""
+    with sqlite3.connect(DB_NAME) as conn:
+        conn.row_factory = sqlite3.Row
+        rows = conn.execute(
+            """
+            SELECT a.id, a.url, a.source, a.title, a.content, a.date
+            FROM topic_clusters tc
+            JOIN raw_articles a ON a.id = tc.article_id
+            WHERE tc.cluster_id = ?
+            ORDER BY a.date ASC
+            """,
+            (cluster_id,),
+        ).fetchall()
+        return [dict(row) for row in rows]
+
+
+def fetch_clusters_with_descriptions() -> list[dict]:
+    """Return clusters that have a non-null description."""
+    with sqlite3.connect(DB_NAME) as conn:
+        conn.row_factory = sqlite3.Row
+        rows = conn.execute(
+            """
+            SELECT cluster_id, description, created_at
+            FROM clusters
+            WHERE description IS NOT NULL AND TRIM(description) != ''
+            ORDER BY created_at ASC
+            """
+        ).fetchall()
+        return [dict(row) for row in rows]
+
+
+def fetch_clusters_without_descriptions() -> list[str]:
+    """Return cluster_ids missing a description."""
+    with sqlite3.connect(DB_NAME) as conn:
+        rows = conn.execute(
+            """
+            SELECT cluster_id
+            FROM clusters
+            WHERE description IS NULL OR TRIM(description) = ''
+            ORDER BY created_at ASC
+            """
+        ).fetchall()
+        return [row[0] for row in rows]

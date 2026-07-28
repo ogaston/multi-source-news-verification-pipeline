@@ -6,7 +6,7 @@ import sqlite3
 from datetime import datetime, timedelta, timezone
 
 from common.config import DB_NAME
-from common.indexing import RetrievedChunk
+from common.indexing import RetrievedChunk, RetrievedStory
 from common.sources import NewsSource
 from ingestion.pipeline import normalize_date
 
@@ -59,13 +59,76 @@ def filter_ranked_chunks(
 
 
 def format_rag_context(topic: str, chunks: list[RetrievedChunk]) -> str:
-    context = f"--- RAG CONTEXT FOR TOPIC: '{topic}' ---\n\n"
+    context = f"--- RAG CONTEXT FOR QUERY: '{topic}' ---\n\n"
     for chunk in chunks:
         context += f"SOURCE: {chunk.source}\n"
         context += f"DATE: {chunk.date}\n"
         context += f"HEADLINE: {chunk.title}\n"
         context += f"URL: {chunk.url}\n"
         context += f"CHUNK:\n{chunk.text}\n"
+        context += "-" * 40 + "\n\n"
+    return context
+
+
+def _article_matches_filters(
+    article: dict,
+    *,
+    date_threshold: datetime,
+    source_filter: str | None,
+) -> bool:
+    if source_filter and article.get("source") != source_filter:
+        return False
+    article_dt = parse_article_date(article.get("date"))
+    if article_dt is None or article_dt < date_threshold:
+        return False
+    return True
+
+
+def filter_ranked_stories(
+    stories: list[RetrievedStory],
+    *,
+    fetch_articles,
+    date_threshold: datetime,
+    source: NewsSource | None,
+    limit: int,
+) -> list[tuple[RetrievedStory, list[dict]]]:
+    """Keep top-ranked stories whose member articles pass date/source filters."""
+    source_filter = source.value if source else None
+    filtered: list[tuple[RetrievedStory, list[dict]]] = []
+    for story in stories:
+        articles = fetch_articles(story.cluster_id)
+        if not any(
+            _article_matches_filters(
+                article,
+                date_threshold=date_threshold,
+                source_filter=source_filter,
+            )
+            for article in articles
+        ):
+            continue
+        filtered.append((story, articles))
+        if len(filtered) >= limit:
+            break
+    return filtered
+
+
+def format_story_context(
+    query: str,
+    stories: list[tuple[RetrievedStory, list[dict]]],
+) -> str:
+    context = f"--- STORY SEARCH FOR QUERY: '{query}' ---\n\n"
+    for story, articles in stories:
+        context += f"--- STORY: {story.description} ---\n"
+        context += f"STORY_ID: {story.cluster_id}\n"
+        context += f"CREATED: {story.created_at}\n"
+        context += f"ARTICLES: {len(articles)}\n\n"
+        for article in articles:
+            context += f"  SOURCE: {article.get('source') or ''}\n"
+            context += f"  DATE: {article.get('date') or ''}\n"
+            context += f"  HEADLINE: {article.get('title') or ''}\n"
+            context += f"  URL: {article.get('url') or ''}\n"
+            context += f"  CONTENT:\n{article.get('content') or ''}\n"
+            context += "  " + "-" * 38 + "\n\n"
         context += "-" * 40 + "\n\n"
     return context
 

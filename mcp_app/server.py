@@ -21,7 +21,7 @@ from common.sources import NewsSource
 from mcp_app.auth import load_auth_from_env
 from mcp_app.prompt import run_get_last_week
 from mcp_app.resources import get_source_frontpage, list_sources_json
-from mcp_app.tools import run_query_topic
+from mcp_app.tools import run_search_articles, run_search_story
 
 MCP_HOST = os.environ.get("MCP_HOST", "127.0.0.1")
 MCP_PORT = int(os.environ.get("MCP_PORT", "8000"))
@@ -45,14 +45,14 @@ async def landing_page(_request: Request) -> HTMLResponse:
 
 
 @mcp.tool(
-    name="query_topic",
-    description="Search dominican news for a given topic",
+    name="search_articles",
+    description="Semantic search across all Dominican news articles",
 )
-def query_topic(
-    topic: Annotated[
+def search_articles(
+    query: Annotated[
         str,
         Field(
-            description='Conceptual topic or question (e.g. "reforma fiscal", "apagones").',
+            description='Search query or question (e.g. "reforma fiscal", "apagones").',
             max_length=MAX_TOPIC_LENGTH,
         ),
     ],
@@ -78,7 +78,44 @@ def query_topic(
     ] = None,
 ) -> str:
     """Semantic RAG search over Dominican news (Spanish-friendly embeddings)."""
-    return run_query_topic(topic, limit, days_back, source)
+    return run_search_articles(query, limit, days_back, source)
+
+
+@mcp.tool(
+    name="search_story",
+    description="Search news stories and return matching stories with their articles",
+)
+def search_story(
+    query: Annotated[
+        str,
+        Field(
+            description='Story search query (e.g. "reforma fiscal", "apagones").',
+            max_length=MAX_TOPIC_LENGTH,
+        ),
+    ],
+    limit: Annotated[
+        int,
+        Field(
+            description="Maximum stories to return.",
+            ge=1,
+            le=MAX_QUERY_LIMIT,
+        ),
+    ] = DEFAULT_QUERY_LIMIT,
+    days_back: Annotated[
+        int,
+        Field(
+            description="Only include stories with at least one article from the last N days.",
+            ge=0,
+            le=MAX_DAYS_BACK,
+        ),
+    ] = DEFAULT_DAYS_BACK,
+    source: Annotated[
+        NewsSource | None,
+        Field(description='Optional outlet filter (e.g. "Acento", "Listin Diario").'),
+    ] = None,
+) -> str:
+    """Semantic search over story descriptions; returns each story with member articles."""
+    return run_search_story(query, limit, days_back, source)
 
 
 @mcp.resource(

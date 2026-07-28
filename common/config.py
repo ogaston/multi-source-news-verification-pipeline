@@ -28,3 +28,10 @@ DATA_DIR = os.environ.get("DATA_DIR", "data")
 PREPROCESS_BATCH_SIZE = int(os.environ.get("PREPROCESS_BATCH_SIZE", "650"))
 # Cosine distance threshold for AHC (≈ 1 - similarity); 0.25 ≈ similarity 0.75.
 CLUSTER_DISTANCE_THRESHOLD = float(os.environ.get("CLUSTER_DISTANCE_THRESHOLD", "0.30"))
+
+OLLAMA_BASE_URL = os.environ.get("OLLAMA_BASE_URL", "http://localhost:11434")
+OLLAMA_MODEL = os.environ.get("OLLAMA_MODEL", "gemma4:e2b")
+# Disable extended reasoning for thinking-capable models (Ollama /set nothink equivalent).
+OLLAMA_THINK = os.environ.get("OLLAMA_THINK", "false").lower() in ("1", "true", "yes")
+CLUSTER_DESC_MAX_CHARS = int(os.environ.get("CLUSTER_DESC_MAX_CHARS", "800"))
+STORY_CHROMA_COLLECTION = os.environ.get("STORY_CHROMA_COLLECTION", "story_index")
