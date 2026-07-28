@@ -2,27 +2,8 @@ import hashlib
 import sqlite3
 from datetime import datetime
 
-import chromadb
-from chromadb.utils import embedding_functions
-
-from common.config import CHROMA_COLLECTION, CHROMA_PATH, DB_NAME, EMBED_MODEL
-
-_vector_collection = None
-
-
-def _get_vector_collection():
-    global _vector_collection
-    if _vector_collection is None:
-        chroma_client = chromadb.PersistentClient(path=CHROMA_PATH)
-        sentence_transformer_ef = (
-            embedding_functions.SentenceTransformerEmbeddingFunction(
-                model_name=EMBED_MODEL
-            )
-        )
-        _vector_collection = chroma_client.get_or_create_collection(
-            name=CHROMA_COLLECTION, embedding_function=sentence_transformer_ef
-        )
-    return _vector_collection
+from common.config import DB_NAME
+from common.indexing import index_article
 
 
 def init_db():
@@ -113,18 +94,15 @@ def save_news(news: dict) -> str:
     conn.commit()
     conn.close()
 
-    collection = _get_vector_collection()
-    collection.upsert(
-        ids=[news_id],
-        documents=[f"{title}\n\n{content}"],
-        metadatas=[
-            {
-                "url": url,
-                "source": source or "",
-                "title": title or "",
-                "date": date or "",
-            }
-        ],
+    index_article(
+        {
+            "id": news_id,
+            "url": url,
+            "source": source,
+            "title": title,
+            "content": content,
+            "date": date,
+        }
     )
 
     return news_id

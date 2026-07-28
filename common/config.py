@@ -4,8 +4,11 @@ import os
 
 DB_NAME = os.environ.get("DB_NAME", "dominican_news_repository.db")
 CHROMA_PATH = os.environ.get("CHROMA_PATH", "./chroma_db")
-CHROMA_COLLECTION = os.environ.get("CHROMA_COLLECTION", "news_index")
+# v2 = chunked LlamaIndex nodes (not whole-article vectors).
+CHROMA_COLLECTION = os.environ.get("CHROMA_COLLECTION", "news_index_v2")
 EMBED_MODEL = os.environ.get("EMBED_MODEL", "paraphrase-multilingual-MiniLM-L12-v2")
+CHUNK_SIZE = int(os.environ.get("CHUNK_SIZE", "512"))
+CHUNK_OVERLAP = int(os.environ.get("CHUNK_OVERLAP", "64"))
 
 MIN_CONTENT_CHARS = 50
 DEFAULT_URL_LIMIT = 5

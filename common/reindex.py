@@ -1,64 +1,49 @@
 """
-Rebuild the Chroma collection from SQLite using the current embedding model.
+Rebuild the Chroma collection from SQLite using chunked LlamaIndex nodes.
 
-Required after changing EMBED_MODEL (old vectors are incompatible):
+Required after changing EMBED_MODEL, CHUNK_SIZE/OVERLAP, or collection version:
 
     python -m common.reindex
 """
 
 from __future__ import annotations
 
-import chromadb
-from chromadb.utils import embedding_functions
-
-from common.config import CHROMA_COLLECTION, CHROMA_PATH, EMBED_MODEL
+from common.config import CHROMA_COLLECTION, EMBED_MODEL
 from common.db import fetch_all_news, init_db
+from common.indexing import delete_collection, index_article, reset_index_cache
 
 
 def reindex() -> int:
     init_db()
     articles = fetch_all_news()
 
-    client = chromadb.PersistentClient(path=CHROMA_PATH)
-    try:
-        client.delete_collection(CHROMA_COLLECTION)
+    if delete_collection():
         print(f"Deleted existing collection: {CHROMA_COLLECTION}")
-    except Exception:
+    else:
         print(f"No existing collection to delete: {CHROMA_COLLECTION}")
-
-    ef = embedding_functions.SentenceTransformerEmbeddingFunction(
-        model_name=EMBED_MODEL
-    )
-    collection = client.get_or_create_collection(
-        name=CHROMA_COLLECTION, embedding_function=ef
-    )
+    reset_index_cache()
 
     if not articles:
-        print("No articles in SQLite; empty collection created.")
+        print("No articles in SQLite; empty collection will be created on first index.")
         return 0
 
-    batch_size = 64
-    total = 0
-    for i in range(0, len(articles), batch_size):
-        batch = articles[i : i + batch_size]
-        collection.upsert(
-            ids=[row["id"] for row in batch],
-            documents=[f"{row['title']}\n\n{row['content']}" for row in batch],
-            metadatas=[
-                {
-                    "url": row["url"] or "",
-                    "source": row["source"] or "",
-                    "title": row["title"] or "",
-                    "date": row["date"] or "",
-                }
-                for row in batch
-            ],
-        )
-        total += len(batch)
-        print(f"Indexed {total}/{len(articles)}")
+    total_articles = 0
+    total_chunks = 0
+    for row in articles:
+        n = index_article(row)
+        total_articles += 1
+        total_chunks += n
+        if total_articles % 10 == 0 or total_articles == len(articles):
+            print(
+                f"Indexed {total_articles}/{len(articles)} articles "
+                f"({total_chunks} chunks)"
+            )
 
-    print(f"Reindex complete with model {EMBED_MODEL}: {total} articles")
-    return total
+    print(
+        f"Reindex complete with model {EMBED_MODEL}: "
+        f"{total_articles} articles, {total_chunks} chunks"
+    )
+    return total_chunks
 
 
 if __name__ == "__main__":

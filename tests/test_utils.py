@@ -8,7 +8,31 @@ from datetime import datetime, timezone
 import pytest
 
 import mcp_app.utils as utils
+from common.indexing import RetrievedChunk
 from common.sources import NewsSource
+
+
+def _chunk(
+    article_id: str,
+    *,
+    source: str = "Hoy",
+    date: str = "2026-07-21T00:00:00+00:00",
+    title: str = "T",
+    url: str = "https://example.com/x",
+    text: str = "chunk text",
+    score: float = 0.9,
+    chunk_index: int = 0,
+) -> RetrievedChunk:
+    return RetrievedChunk(
+        article_id=article_id,
+        text=text,
+        score=score,
+        url=url,
+        source=source,
+        title=title,
+        date=date,
+        chunk_index=chunk_index,
+    )
 
 
 @pytest.fixture
@@ -71,107 +95,104 @@ class TestParseArticleDate:
         assert utils.parse_article_date("not-a-date") is None
 
 
-class TestFilterRankedIds:
+class TestFilterRankedChunks:
     threshold = datetime(2026, 7, 20, tzinfo=timezone.utc)
 
     def test_filters_by_date_and_preserves_rank_order(self):
-        ranked = ["old", "fresh", "also-fresh"]
-        metas = [
-            {"source": "Acento", "date": "2026-07-10T00:00:00+00:00"},
-            {"source": "Acento", "date": "2026-07-21T00:00:00+00:00"},
-            {"source": "Hoy", "date": "2026-07-22T00:00:00+00:00"},
+        chunks = [
+            _chunk("old", date="2026-07-10T00:00:00+00:00", source="Acento"),
+            _chunk("fresh", date="2026-07-21T00:00:00+00:00", source="Acento"),
+            _chunk("also-fresh", date="2026-07-22T00:00:00+00:00", source="Hoy"),
         ]
-        assert utils.filter_ranked_ids(
-            ranked,
-            metas,
+        result = utils.filter_ranked_chunks(
+            chunks,
             date_threshold=self.threshold,
             source=None,
             limit=10,
-        ) == ["fresh", "also-fresh"]
+        )
+        assert [c.article_id for c in result] == ["fresh", "also-fresh"]
 
     def test_filters_by_source(self):
-        ranked = ["a", "b"]
-        metas = [
-            {"source": "Acento", "date": "2026-07-21T00:00:00+00:00"},
-            {"source": "Hoy", "date": "2026-07-21T00:00:00+00:00"},
+        chunks = [
+            _chunk("a", source="Acento"),
+            _chunk("b", source="Hoy"),
         ]
-        assert utils.filter_ranked_ids(
-            ranked,
-            metas,
+        result = utils.filter_ranked_chunks(
+            chunks,
             date_threshold=self.threshold,
             source=NewsSource.ACENTO,
             limit=10,
-        ) == ["a"]
+        )
+        assert [c.article_id for c in result] == ["a"]
 
     def test_respects_limit(self):
-        ranked = ["a", "b", "c"]
-        metas = [
-            {"source": "Hoy", "date": "2026-07-21T00:00:00+00:00"},
-            {"source": "Hoy", "date": "2026-07-22T00:00:00+00:00"},
-            {"source": "Hoy", "date": "2026-07-23T00:00:00+00:00"},
+        chunks = [
+            _chunk("a", date="2026-07-21T00:00:00+00:00"),
+            _chunk("b", date="2026-07-22T00:00:00+00:00"),
+            _chunk("c", date="2026-07-23T00:00:00+00:00"),
         ]
-        assert utils.filter_ranked_ids(
-            ranked,
-            metas,
+        result = utils.filter_ranked_chunks(
+            chunks,
             date_threshold=self.threshold,
             source=None,
             limit=2,
-        ) == ["a", "b"]
+        )
+        assert [c.article_id for c in result] == ["a", "b"]
 
-    def test_skips_missing_date_and_none_meta(self):
-        ranked = ["no-date", "ok", "null-meta"]
-        metas = [
-            {"source": "Hoy"},
-            {"source": "Hoy", "date": "2026-07-21T00:00:00+00:00"},
-            None,
+    def test_skips_missing_date(self):
+        chunks = [
+            _chunk("no-date", date=""),
+            _chunk("ok", date="2026-07-21T00:00:00+00:00"),
         ]
-        assert utils.filter_ranked_ids(
-            ranked,
-            metas,
+        result = utils.filter_ranked_chunks(
+            chunks,
             date_threshold=self.threshold,
             source=None,
             limit=10,
-        ) == ["ok"]
+        )
+        assert [c.article_id for c in result] == ["ok"]
+
+    def test_dedupes_by_article_keeping_first_ranked(self):
+        chunks = [
+            _chunk("art-1", text="best", score=0.95, chunk_index=1),
+            _chunk("art-1", text="worse", score=0.5, chunk_index=0),
+            _chunk("art-2", text="other", score=0.4),
+        ]
+        result = utils.filter_ranked_chunks(
+            chunks,
+            date_threshold=self.threshold,
+            source=None,
+            limit=10,
+        )
+        assert [c.article_id for c in result] == ["art-1", "art-2"]
+        assert result[0].text == "best"
 
 
 class TestFormatRagContext:
-    def test_formats_rows(self):
-        row = {
-            "source": "Acento",
-            "date": "2026-07-21",
-            "title": "Headline",
-            "url": "https://example.com/x",
-            "content": "hello world",
-        }
-        text = utils.format_rag_context("apagones", [row])
+    def test_formats_chunks(self):
+        chunk = _chunk(
+            "id-1",
+            source="Acento",
+            date="2026-07-21",
+            title="Headline",
+            url="https://example.com/x",
+            text="hello world",
+        )
+        text = utils.format_rag_context("apagones", [chunk])
         assert "--- RAG CONTEXT FOR TOPIC: 'apagones' ---" in text
         assert "SOURCE: Acento" in text
         assert "HEADLINE: Headline" in text
-        assert "CONTENT EXCERPT:\nhello world...\n" in text
+        assert "CHUNK:\nhello world\n" in text
 
-    def test_truncates_long_content(self):
-        row = {
-            "source": "Hoy",
-            "date": "2026-07-21",
-            "title": "T",
-            "url": "https://example.com/y",
-            "content": "x" * 3000,
-        }
-        text = utils.format_rag_context("topic", [row])
-        assert "CONTENT EXCERPT:\n" + ("x" * 2500) + "...\n" in text
-        assert "x" * 2501 not in text
+    def test_includes_full_chunk_text(self):
+        body = "x" * 3000
+        chunk = _chunk("id-2", source="Hoy", title="T", text=body)
+        text = utils.format_rag_context("topic", [chunk])
+        assert f"CHUNK:\n{body}\n" in text
 
 
-class TestQueryDbAndLoadOrderedRows:
+class TestQueryDb:
     def test_query_db(self, temp_db):
         rows = utils.query_db("SELECT id, title FROM news WHERE id = ?", ("id-a",))
         assert len(rows) == 1
         assert rows[0]["title"] == "First"
-
-    def test_load_ordered_rows_preserves_input_order(self, temp_db):
-        ordered = utils.load_ordered_rows(["id-a", "id-b"])
-        assert [row["id"] for row in ordered] == ["id-a", "id-b"]
-
-    def test_load_ordered_rows_skips_missing_ids(self, temp_db):
-        ordered = utils.load_ordered_rows(["missing", "id-b"])
-        assert [row["id"] for row in ordered] == ["id-b"]

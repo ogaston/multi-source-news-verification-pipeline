@@ -1,6 +1,6 @@
 # News extraction pipeline
 
-Scrapes Dominican news outlets into **SQLite + Chroma**, then exposes semantic search over MCP (`query_topic`).
+Scrapes Dominican news outlets into **SQLite + Chroma +  LlamaIndex chunked index**, then exposes semantic search over MCP (`query_topic`).
 
 **Sources:** 
 - Somos Pueblo
@@ -42,6 +42,8 @@ mcp dev mcp_app/server.py
 
 Tool: `query_topic(topic, limit=5, days_back=7, source=None)`.
 
+Returns the best matching **chunk** per article (plus source, date, headline, URL). Articles are split with LlamaIndex `SentenceSplitter` (`CHUNK_SIZE=512`, `CHUNK_OVERLAP=64`) into Chroma collection `news_index_v2`.
+
 ## Security (HTTP transports)
 
 When `MCP_TRANSPORT` is `streamable-http` or `sse`, clients must send:
@@ -77,7 +79,7 @@ docker compose up -d --build
 
 ## Reindex
 
-After changing `EMBED_MODEL` in `common/config.py`:
+Required after changing `EMBED_MODEL`, `CHUNK_SIZE` / `CHUNK_OVERLAP`, or upgrading to the chunked `news_index_v2` collection (old whole-article vectors are incompatible):
 
 ```bash
 python -m common.reindex

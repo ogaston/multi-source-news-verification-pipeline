@@ -1,15 +1,14 @@
-"""Shared helpers for MCP query tools (DB, Chroma, date parsing, formatting)."""
+"""Shared helpers for MCP query tools (DB, date parsing, formatting)."""
 
 from __future__ import annotations
 
 import sqlite3
 from datetime import datetime, timedelta, timezone
 
-from common.config import CHROMA_COLLECTION, CHROMA_PATH, DB_NAME, EMBED_MODEL
+from common.config import DB_NAME
+from common.indexing import RetrievedChunk
 from common.sources import NewsSource
 from ingestion.pipeline import normalize_date
-
-_vector_collection = None
 
 
 def query_db(sql: str, params: tuple) -> list[sqlite3.Row]:
@@ -21,22 +20,6 @@ def query_db(sql: str, params: tuple) -> list[sqlite3.Row]:
         return cursor.fetchall()
 
 
-def get_vector_collection():
-    global _vector_collection
-    if _vector_collection is None:
-        import chromadb
-        from chromadb.utils import embedding_functions
-
-        client = chromadb.PersistentClient(path=CHROMA_PATH)
-        embedding_fn = embedding_functions.SentenceTransformerEmbeddingFunction(
-            model_name=EMBED_MODEL
-        )
-        _vector_collection = client.get_or_create_collection(
-            name=CHROMA_COLLECTION, embedding_function=embedding_fn
-        )
-    return _vector_collection
-
-
 def parse_article_date(value: str | None) -> datetime | None:
     if not value:
         return None
@@ -46,46 +29,43 @@ def parse_article_date(value: str | None) -> datetime | None:
     return datetime.fromisoformat(normalized.replace("Z", "+00:00"))
 
 
-def filter_ranked_ids(
-    ranked_ids: list[str],
-    metadatas: list[dict | None],
+def filter_ranked_chunks(
+    chunks: list[RetrievedChunk],
     *,
     date_threshold: datetime,
     source: NewsSource | None,
     limit: int,
-) -> list[str]:
+) -> list[RetrievedChunk]:
+    """
+    Apply date/source filters, then keep the best-ranked chunk per article.
+    `limit` is max distinct articles.
+    """
     source_filter = source.value if source else None
-    filtered_ids: list[str] = []
-    for news_id, meta in zip(ranked_ids, metadatas):
-        meta = meta or {}
-        if source_filter and (meta.get("source") or "") != source_filter:
+    seen_articles: set[str] = set()
+    filtered: list[RetrievedChunk] = []
+    for chunk in chunks:
+        if source_filter and chunk.source != source_filter:
             continue
-        article_dt = parse_article_date(meta.get("date"))
+        article_dt = parse_article_date(chunk.date)
         if article_dt is None or article_dt < date_threshold:
             continue
-        filtered_ids.append(news_id)
-        if len(filtered_ids) >= limit:
+        if chunk.article_id in seen_articles:
+            continue
+        seen_articles.add(chunk.article_id)
+        filtered.append(chunk)
+        if len(filtered) >= limit:
             break
-    return filtered_ids
+    return filtered
 
 
-def load_ordered_rows(filtered_ids: list[str]) -> list[sqlite3.Row]:
-    rows = query_db(
-        f"SELECT id, source, title, date, content, url FROM news WHERE id IN ({','.join(['?'] * len(filtered_ids))})",
-        tuple(filtered_ids),
-    )
-    by_id = {row["id"]: row for row in rows}
-    return [by_id[i] for i in filtered_ids if i in by_id]
-
-
-def format_rag_context(topic: str, rows: list[sqlite3.Row]) -> str:
+def format_rag_context(topic: str, chunks: list[RetrievedChunk]) -> str:
     context = f"--- RAG CONTEXT FOR TOPIC: '{topic}' ---\n\n"
-    for row in rows:
-        context += f"SOURCE: {row['source']}\n"
-        context += f"DATE: {row['date']}\n"
-        context += f"HEADLINE: {row['title']}\n"
-        context += f"URL: {row['url']}\n"
-        context += f"CONTENT EXCERPT:\n{row['content'][:2500]}...\n"
+    for chunk in chunks:
+        context += f"SOURCE: {chunk.source}\n"
+        context += f"DATE: {chunk.date}\n"
+        context += f"HEADLINE: {chunk.title}\n"
+        context += f"URL: {chunk.url}\n"
+        context += f"CHUNK:\n{chunk.text}\n"
         context += "-" * 40 + "\n\n"
     return context
 
