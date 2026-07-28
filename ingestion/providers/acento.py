@@ -4,8 +4,8 @@ import re
 from bs4 import BeautifulSoup
 from crawl4ai.models import CrawlResult
 
-from providers.base import BaseNewsProvider
-from sources import NewsSource
+from common.sources import NewsSource
+from ingestion.providers.base import BaseNewsProvider
 
 
 class AcentoProvider(BaseNewsProvider):

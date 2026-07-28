@@ -8,7 +8,7 @@ from crawl4ai.content_filter_strategy import PruningContentFilter
 from crawl4ai.markdown_generation_strategy import DefaultMarkdownGenerator
 from crawl4ai.models import CrawlResult
 
-from sources import NewsSource
+from common.sources import NewsSource
 
 
 class BaseNewsProvider(ABC):

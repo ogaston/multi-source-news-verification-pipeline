@@ -1,10 +1,10 @@
-"""MCP tool implementations (logic only; decorators live in mcp_server)."""
+"""MCP tool implementations (logic only; decorators live in mcp_app.server)."""
 
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
 
-from config import (
+from common.config import (
     DEFAULT_DAYS_BACK,
     DEFAULT_QUERY_LIMIT,
     MAX_DAYS_BACK,
@@ -13,8 +13,8 @@ from config import (
     QUERY_CANDIDATE_MIN,
     QUERY_CANDIDATE_MULTIPLIER,
 )
-from sources import NewsSource
-from utils import (
+from common.sources import NewsSource
+from mcp_app.utils import (
     filter_ranked_ids,
     format_rag_context,
     get_vector_collection,

@@ -5,17 +5,17 @@ import os
 DB_NAME = os.environ.get("DB_NAME", "dominican_news_repository.db")
 CHROMA_PATH = os.environ.get("CHROMA_PATH", "./chroma_db")
 CHROMA_COLLECTION = os.environ.get("CHROMA_COLLECTION", "news_index")
-EMBED_MODEL = os.environ.get(
-    "EMBED_MODEL", "paraphrase-multilingual-MiniLM-L12-v2"
-)
+EMBED_MODEL = os.environ.get("EMBED_MODEL", "paraphrase-multilingual-MiniLM-L12-v2")
 
-MIN_CONTENT_CHARS = 200
+MIN_CONTENT_CHARS = 50
 DEFAULT_URL_LIMIT = 5
 DEFAULT_QUERY_LIMIT = 5
 DEFAULT_DAYS_BACK = 7
+
 MAX_QUERY_LIMIT = int(os.environ.get("MAX_QUERY_LIMIT", "50"))
 MAX_DAYS_BACK = int(os.environ.get("MAX_DAYS_BACK", "365"))
 MAX_TOPIC_LENGTH = int(os.environ.get("MAX_TOPIC_LENGTH", "500"))
+
 # Fetch extra Chroma hits so post-filters (date/source) still fill `limit`.
 QUERY_CANDIDATE_MULTIPLIER = 5
 QUERY_CANDIDATE_MIN = 25

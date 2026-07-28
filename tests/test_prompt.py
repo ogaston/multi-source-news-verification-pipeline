@@ -7,9 +7,9 @@ from datetime import datetime, timedelta, timezone
 
 import pytest
 
-import utils
-from prompt import LAST_WEEK_DAYS, run_get_last_week
-from sources import NewsSource
+import mcp_app.utils as utils
+from common.sources import NewsSource
+from mcp_app.prompt import LAST_WEEK_DAYS, run_get_last_week
 
 
 @pytest.fixture

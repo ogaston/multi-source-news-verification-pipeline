@@ -5,7 +5,7 @@ from __future__ import annotations
 import re
 from datetime import datetime, timezone
 
-from config import MIN_CONTENT_CHARS
+from common.config import MIN_CONTENT_CHARS
 
 _PLACEHOLDER_TITLES = {"", "sin título", "sin titulo"}
 _PLACEHOLDER_CONTENT = {"", "sin contenido"}

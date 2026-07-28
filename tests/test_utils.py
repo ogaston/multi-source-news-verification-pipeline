@@ -7,8 +7,8 @@ from datetime import datetime, timezone
 
 import pytest
 
-import utils
-from sources import NewsSource
+import mcp_app.utils as utils
+from common.sources import NewsSource
 
 
 @pytest.fixture

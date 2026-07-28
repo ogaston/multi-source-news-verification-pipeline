@@ -8,11 +8,11 @@ import re
 
 from crawl4ai import AsyncWebCrawler
 
-from config import DATA_DIR, DEFAULT_URL_LIMIT
-from db import existing_urls, init_db, save_news
-from pipeline import prepare_article
-from providers import NEWS_PROVIDERS
-from sources import NewsSource
+from common.config import DATA_DIR, DEFAULT_URL_LIMIT
+from common.db import existing_urls, init_db, save_news
+from common.sources import NewsSource
+from ingestion.pipeline import prepare_article
+from ingestion.providers import NEWS_PROVIDERS
 
 
 def save_in_json(content: dict, url: str) -> str:

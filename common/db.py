@@ -5,7 +5,7 @@ from datetime import datetime
 import chromadb
 from chromadb.utils import embedding_functions
 
-from config import CHROMA_COLLECTION, CHROMA_PATH, DB_NAME, EMBED_MODEL
+from common.config import CHROMA_COLLECTION, CHROMA_PATH, DB_NAME, EMBED_MODEL
 
 _vector_collection = None
 

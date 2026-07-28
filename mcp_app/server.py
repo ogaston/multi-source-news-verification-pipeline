@@ -8,12 +8,12 @@ from mcp.types import Completion, PromptReference
 from starlette.requests import Request
 from starlette.responses import HTMLResponse
 
-from auth import load_auth_from_env
-from config import DEFAULT_DAYS_BACK, DEFAULT_QUERY_LIMIT
-from prompt import run_get_last_week
-from resources import get_source_frontpage, list_sources_json
-from sources import NewsSource
-from tools import run_query_topic
+from common.config import DEFAULT_DAYS_BACK, DEFAULT_QUERY_LIMIT
+from common.sources import NewsSource
+from mcp_app.auth import load_auth_from_env
+from mcp_app.prompt import run_get_last_week
+from mcp_app.resources import get_source_frontpage, list_sources_json
+from mcp_app.tools import run_query_topic
 
 MCP_HOST = os.environ.get("MCP_HOST", "127.0.0.1")
 MCP_PORT = int(os.environ.get("MCP_PORT", "8000"))

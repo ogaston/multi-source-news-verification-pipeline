@@ -1,9 +1,9 @@
-"""MCP resource implementations (logic only; decorators live in mcp_server)."""
+"""MCP resource implementations (logic only; decorators live in mcp_app.server)."""
 
 from __future__ import annotations
 
-from sources import NewsSource
-from utils import format_frontpage, load_source_articles
+from common.sources import NewsSource
+from mcp_app.utils import format_frontpage, load_source_articles
 
 
 def resolve_source_id(source_id: str) -> NewsSource | None:

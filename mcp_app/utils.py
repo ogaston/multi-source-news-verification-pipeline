@@ -5,9 +5,9 @@ from __future__ import annotations
 import sqlite3
 from datetime import datetime, timedelta, timezone
 
-from config import CHROMA_COLLECTION, CHROMA_PATH, DB_NAME, EMBED_MODEL
-from pipeline import normalize_date
-from sources import NewsSource
+from common.config import CHROMA_COLLECTION, CHROMA_PATH, DB_NAME, EMBED_MODEL
+from common.sources import NewsSource
+from ingestion.pipeline import normalize_date
 
 _vector_collection = None
 

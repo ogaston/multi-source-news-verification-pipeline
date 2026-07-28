@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import asyncio
 
-from auth import REQUIRED_SCOPE, StaticTokenVerifier, load_auth_from_env
+from mcp_app.auth import REQUIRED_SCOPE, StaticTokenVerifier, load_auth_from_env
 
 
 def test_valid_token():

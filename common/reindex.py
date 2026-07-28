@@ -3,7 +3,7 @@ Rebuild the Chroma collection from SQLite using the current embedding model.
 
 Required after changing EMBED_MODEL (old vectors are incompatible):
 
-    python reindex.py
+    python -m common.reindex
 """
 
 from __future__ import annotations
@@ -11,8 +11,8 @@ from __future__ import annotations
 import chromadb
 from chromadb.utils import embedding_functions
 
-from config import CHROMA_COLLECTION, CHROMA_PATH, EMBED_MODEL
-from db import fetch_all_news, init_db
+from common.config import CHROMA_COLLECTION, CHROMA_PATH, EMBED_MODEL
+from common.db import fetch_all_news, init_db
 
 
 def reindex() -> int:

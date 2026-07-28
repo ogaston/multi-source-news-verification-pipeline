@@ -1,51 +1,47 @@
+import re
+
 from bs4 import BeautifulSoup
 from crawl4ai.models import CrawlResult
 
-from providers.base import BaseNewsProvider
-from sources import NewsSource
+from common.sources import NewsSource
+from ingestion.providers.base import BaseNewsProvider
 
 
-class ElNuevoDiarioProvider(BaseNewsProvider):
-    base_url = "https://elnuevodiario.com.do"
-    source = NewsSource.EL_NUEVO_DIARIO
-    css_selector = "article.noticia-detalle"
+class ListinDiarioProvider(BaseNewsProvider):
+    base_url = "https://listindiario.com"
+    source = NewsSource.LISTIN_DIARIO
+    css_selector = "article.c-detail"
 
     def get_author(self, result: CrawlResult) -> str:
         html = result.cleaned_html or result.html
         if html:
             soup = BeautifulSoup(html, "html.parser")
-            author_el = soup.select_one(
-                'header.entry-header .entry-meta a[href*="/author/"] b'
-            )
+            author_el = soup.select_one("span.c-detail__author__name")
             if author_el and author_el.get_text(strip=True):
                 return author_el.get_text(strip=True)
-
-            author_link = soup.select_one(
-                'header.entry-header .entry-meta a[href*="/author/"]'
-            )
-            if author_link and author_link.get_text(strip=True):
-                return author_link.get_text(strip=True)
 
         return result.metadata.get("author") or "Sin Autor"
 
     def get_category(self, result: CrawlResult) -> str:
-        html = result.cleaned_html or result.html
-        if html:
+        for html in (result.html, result.cleaned_html):
+            if not html:
+                continue
             soup = BeautifulSoup(html, "html.parser")
-            category_el = soup.select_one("a.section-name")
+            category_el = soup.select_one(".c-menu-section a")
             if category_el and category_el.get_text(strip=True):
                 return category_el.get_text(strip=True)
         return result.metadata.get("category") or "Sin Categoría"
 
     def get_date(self, result: CrawlResult) -> str:
-        html = result.cleaned_html or result.html
-        if html:
+        for html in (result.html, result.cleaned_html):
+            if not html:
+                continue
             soup = BeautifulSoup(html, "html.parser")
             meta_date = soup.select_one('meta[property="article:published_time"]')
             if meta_date and meta_date.get("content"):
                 return meta_date["content"].strip()
 
-            date_el = soup.select_one("time.entry-date")
+            date_el = soup.select_one("time.c-detail__date")
             if date_el:
                 dt = date_el.get("datetime")
                 if dt:
@@ -64,7 +60,7 @@ class ElNuevoDiarioProvider(BaseNewsProvider):
         html = result.cleaned_html or result.html
         if html:
             soup = BeautifulSoup(html, "html.parser")
-            title_el = soup.select_one("h1.entry-title")
+            title_el = soup.select_one("h1.c-detail__title")
             if title_el:
                 return title_el.get_text(strip=True)
         return result.metadata.get("title") or "Sin Título"
@@ -73,12 +69,13 @@ class ElNuevoDiarioProvider(BaseNewsProvider):
         html = result.cleaned_html or result.html
         if html:
             soup = BeautifulSoup(html, "html.parser")
-            content_el = soup.select_one("div.entry-content")
+            content_el = soup.select_one("div.c-detail__body")
             if content_el:
                 for junk in content_el.select(
-                    "#gemini-summary-wrapper, #gemini-loading, "
-                    "style, script, [data-beyondwords-player], "
-                    ".sharedaddy, .jp-relatedposts"
+                    ".c-add, .c-detail__share, .c-detail__tags, "
+                    ".c-detail__comments, .c-detail__tepuedeinteresar, "
+                    ".c-detail__mostread, .c-detail__bio, "
+                    "style, script, iframe, aside, nav"
                 ):
                     junk.decompose()
 
@@ -87,6 +84,7 @@ class ElNuevoDiarioProvider(BaseNewsProvider):
                     for p in content_el.select("p")
                     if p.get_text(strip=True)
                     and "Recibe en tu correo" not in p.get_text()
+                    and "Suscríbete" not in p.get_text()
                 ]
                 if paragraphs:
                     return "\n\n".join(paragraphs)
@@ -98,46 +96,31 @@ class ElNuevoDiarioProvider(BaseNewsProvider):
         if not url.startswith(self.base_url):
             return False
 
+        if not re.search(r"/\d{8}/[^/]+_\d+\.html(?:\?|$)", url):
+            return False
+
         ignored_keywords = [
-            "/author/",
-            "/category/",
+            "/autor/",
             "/tag/",
+            "/tags/",
             "/page/",
-            "/wp-content/",
-            "/wp-admin/",
-            "/contactos/",
-            "/quienes-somos/",
-            "/edicionimpresa/",
-            "/documentales/",
+            "/buscar",
+            "/search",
+            "/login",
+            "/registro",
+            "/suscrib",
+            "/newsletters",
+            "/clasificados/",
+            "/obituarios/",
+            "/horoscopo/",
+            "/edicion-impresa/",
+            "/galerias/",
             "/podcast/",
-            "/programa-podcast/",
-            "/encuesta/",
-            "/estudio/",
-            "/intent/",
-            "/politica-de-privacidad/",
-            "/condiciones-del-servicio/",
-            "/politica-editorial/",
-            "/politicas-de-seguridad/",
-            "/politica-de-cambios-y-devoluciones/",
-            "/trabaja-con-nosotros/",
-            "/nacionales/",
-            "/internacionales/",
-            "/deportes/",
-            "/politica/",
-            "/economia/",
-            "/opinion/",
-            "/editorial/",
-            "/denuncias/",
-            "/buenas-noticias/",
-            "/salud/",
-            "/viral/",
-            "/sociales/",
-            "/medio-ambiente/",
-            "/sabores/",
-            "/new-york/",
-            "/novedades/",
-            "/mundo-otaku/",
-            "/sostenibilidad/",
-            "/toga/",
+            "/videos/",
+            "/wp-content/",
+            "/files/",
+            "/contacto",
+            "/aviso-legal",
+            "/politica-de-privacidad",
         ]
         return not any(keyword in url for keyword in ignored_keywords)

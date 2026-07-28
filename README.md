@@ -10,6 +10,8 @@ Scrapes Dominican news outlets into **SQLite + Chroma**, then exposes semantic s
 - Hoy
 - Acento
 
+**Layout:** `common/` (config, db, sources), `ingestion/` (scrape + quality gates), `mcp_app/` (MCP server), `preprocessing/` (data clustering).
+
 ## Setup
 
 ```bash
@@ -22,9 +24,9 @@ pip install -r requirements.txt
 ## Ingest
 
 ```bash
-python ingestor.py                  # all sources, default --limit 5
-python ingestor.py --source Acento --limit 10
-python ingestor.py --write-json     # also dump debug JSON under data/
+python -m ingestion.ingestor                  # all sources, default --limit 5
+python -m ingestion.ingestor --source Acento --limit 10
+python -m ingestion.ingestor --write-json     # also dump debug JSON under data/
 ```
 
 Incremental: URLs already in SQLite are skipped.
@@ -34,8 +36,8 @@ Incremental: URLs already in SQLite are skipped.
 Local stdio (dev):
 
 ```bash
-mcp dev mcp_server.py
-# or: MCP_TRANSPORT=stdio python mcp_server.py
+mcp dev mcp_app/server.py
+# or: MCP_TRANSPORT=stdio python -m mcp_app.server
 ```
 
 Tool: `query_topic(topic, limit=5, days_back=7, source=None)`.
@@ -70,13 +72,13 @@ docker compose up -d --build
 
 - MCP URL: `http://${MCP_DOMAIN}/mcp` (streamable HTTP). Clients must send `Authorization: Bearer <MCP_API_KEY>`.
 - Switch Traefik entrypoint to `websecure` in compose labels if you terminate TLS there.
-- Manual one-shot ingest: `docker compose run --rm ingest-scheduler python ingestor.py`
+- Manual one-shot ingest: `docker compose run --rm ingest-scheduler python -m ingestion.ingestor`
 - First image build is heavy (Playwright Chromium + embedding model bake-in).
 
 ## Reindex
 
-After changing `EMBED_MODEL` in `config.py`:
+After changing `EMBED_MODEL` in `common/config.py`:
 
 ```bash
-python reindex.py
+python -m common.reindex
 ```

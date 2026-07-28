@@ -7,9 +7,9 @@ from datetime import datetime, timedelta, timezone
 
 import pytest
 
-import utils
-from resources import get_source_frontpage, list_sources_json, resolve_source_id
-from sources import NewsSource
+import mcp_app.utils as utils
+from common.sources import NewsSource
+from mcp_app.resources import get_source_frontpage, list_sources_json, resolve_source_id
 
 
 @pytest.fixture
