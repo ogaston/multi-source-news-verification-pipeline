@@ -2,14 +2,14 @@ import hashlib
 import sqlite3
 from datetime import datetime
 
-from common.config import DB_NAME
+from common.config import DB_NAME, PREPROCESS_BATCH_SIZE
 from common.indexing import index_article
 
 
 def init_db():
     conn = sqlite3.connect(DB_NAME)
     conn.execute("""
-        CREATE TABLE IF NOT EXISTS news (
+        CREATE TABLE IF NOT EXISTS raw_articles (
             id TEXT PRIMARY KEY,
             url TEXT UNIQUE,
             source TEXT,
@@ -18,7 +18,18 @@ def init_db():
             date TEXT,
             author TEXT,
             category TEXT,
-            scraped_at TEXT
+            scraped_at TEXT,
+            processed INTEGER NOT NULL DEFAULT 0
+        )
+    """)
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS topic_clusters (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            cluster_id TEXT NOT NULL,
+            article_id TEXT NOT NULL,
+            description TEXT,
+            created_at TEXT NOT NULL,
+            UNIQUE(cluster_id, article_id)
         )
     """)
     conn.close()
@@ -27,7 +38,7 @@ def init_db():
 def url_exists(url: str) -> bool:
     conn = sqlite3.connect(DB_NAME)
     cursor = conn.cursor()
-    cursor.execute("SELECT COUNT(*) FROM news WHERE url = ?", (url,))
+    cursor.execute("SELECT COUNT(*) FROM raw_articles WHERE url = ?", (url,))
     count = cursor.fetchone()[0]
     conn.close()
     return count > 0
@@ -46,7 +57,7 @@ def existing_urls(urls: list[str]) -> set[str]:
         chunk = urls[i : i + chunk_size]
         placeholders = ",".join("?" * len(chunk))
         cursor.execute(
-            f"SELECT url FROM news WHERE url IN ({placeholders})",
+            f"SELECT url FROM raw_articles WHERE url IN ({placeholders})",
             chunk,
         )
         known.update(row[0] for row in cursor.fetchall())
@@ -68,8 +79,10 @@ def save_news(news: dict) -> str:
 
     cursor.execute(
         """
-    INSERT INTO news (id, url, source, title, content, date, author, category, scraped_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    INSERT INTO raw_articles (
+        id, url, source, title, content, date, author, category, scraped_at, processed
+    )
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0)
     ON CONFLICT(url) DO UPDATE SET
         source = excluded.source,
         title = excluded.title,
@@ -112,6 +125,58 @@ def fetch_all_news() -> list[dict]:
     with sqlite3.connect(DB_NAME) as conn:
         conn.row_factory = sqlite3.Row
         rows = conn.execute(
-            "SELECT id, url, source, title, content, date FROM news"
+            "SELECT id, url, source, title, content, date FROM raw_articles"
         ).fetchall()
         return [dict(row) for row in rows]
+
+
+def fetch_unprocessed_articles(
+    limit: int = PREPROCESS_BATCH_SIZE,
+) -> list[dict]:
+    """Return up to `limit` articles with processed=0, oldest scraped first."""
+    with sqlite3.connect(DB_NAME) as conn:
+        conn.row_factory = sqlite3.Row
+        rows = conn.execute(
+            """
+            SELECT id, url, source, title, content, date, scraped_at
+            FROM raw_articles
+            WHERE processed = 0
+            ORDER BY scraped_at ASC
+            LIMIT ?
+            """,
+            (limit,),
+        ).fetchall()
+        return [dict(row) for row in rows]
+
+
+def mark_articles_processed(ids: list[str]) -> None:
+    if not ids:
+        return
+    with sqlite3.connect(DB_NAME) as conn:
+        placeholders = ",".join("?" * len(ids))
+        conn.execute(
+            f"UPDATE raw_articles SET processed = 1 WHERE id IN ({placeholders})",
+            ids,
+        )
+        conn.commit()
+
+
+def insert_topic_cluster_rows(
+    rows: list[tuple[str, str, str | None, str]],
+) -> None:
+    """
+    Insert topic cluster memberships.
+    Each row is (cluster_id, article_id, description, created_at).
+    """
+    if not rows:
+        return
+    with sqlite3.connect(DB_NAME) as conn:
+        conn.executemany(
+            """
+            INSERT OR IGNORE INTO topic_clusters
+                (cluster_id, article_id, description, created_at)
+            VALUES (?, ?, ?, ?)
+            """,
+            rows,
+        )
+        conn.commit()

@@ -42,18 +42,19 @@ def temp_db(tmp_path, monkeypatch):
     with sqlite3.connect(db_path) as conn:
         conn.execute(
             """
-            CREATE TABLE news (
+            CREATE TABLE raw_articles (
                 id TEXT PRIMARY KEY,
                 source TEXT,
                 title TEXT,
                 date TEXT,
                 content TEXT,
-                url TEXT
+                url TEXT,
+                processed INTEGER NOT NULL DEFAULT 0
             )
             """
         )
         conn.executemany(
-            "INSERT INTO news (id, source, title, date, content, url) VALUES (?, ?, ?, ?, ?, ?)",
+            "INSERT INTO raw_articles (id, source, title, date, content, url) VALUES (?, ?, ?, ?, ?, ?)",
             [
                 (
                     "id-b",
@@ -193,6 +194,6 @@ class TestFormatRagContext:
 
 class TestQueryDb:
     def test_query_db(self, temp_db):
-        rows = utils.query_db("SELECT id, title FROM news WHERE id = ?", ("id-a",))
+        rows = utils.query_db("SELECT id, title FROM raw_articles WHERE id = ?", ("id-a",))
         assert len(rows) == 1
         assert rows[0]["title"] == "First"

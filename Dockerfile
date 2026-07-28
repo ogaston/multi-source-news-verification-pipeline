@@ -41,7 +41,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     fonts-liberation \
     && rm -rf /var/lib/apt/lists/*
 
-# supercronic: cron-like runner for the ingest-scheduler container
+# supercronic: cron-like runner for the scheduler container
 ARG TARGETARCH=amd64
 ARG SUPERCRONIC_VERSION=v0.2.36
 RUN curl -fsSL \

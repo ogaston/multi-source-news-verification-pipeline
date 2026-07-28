@@ -58,7 +58,7 @@ The token is intentionally hardcoded so the MCP endpoint stays free to use witho
 
 Two always-on containers share a volume: 
 - **mcp** (HTTP MCP behind Traefik)
-- **ingest-scheduler** (daily cron via supercronic at **06:00 America/Santo_Domingo**)
+- **scheduler** (supercronic: daily ingest at **06:00 America/Santo_Domingo**, preprocess/clustering every **15 minutes**)
 
 Prerequisites: Docker Compose, Traefik already running on the external `proxy` network.
 
@@ -74,7 +74,8 @@ docker compose up -d --build
 
 - MCP URL: `http://${MCP_DOMAIN}/mcp` (streamable HTTP). Clients must send `Authorization: Bearer <MCP_API_KEY>`.
 - Switch Traefik entrypoint to `websecure` in compose labels if you terminate TLS there.
-- Manual one-shot ingest: `docker compose run --rm ingest-scheduler python -m ingestion.ingestor`
+- Manual one-shot ingest: `docker compose run --rm scheduler python -m ingestion.ingestor`
+- Manual one-shot preprocess: `docker compose run --rm scheduler python -m preprocessing.runner`
 - First image build is heavy (Playwright Chromium + embedding model bake-in).
 
 ## Reindex

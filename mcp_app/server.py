@@ -2,13 +2,21 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
+from typing import Annotated
 
 from mcp.server.fastmcp import FastMCP
 from mcp.types import Completion, PromptReference
+from pydantic import Field
 from starlette.requests import Request
 from starlette.responses import HTMLResponse
 
-from common.config import DEFAULT_DAYS_BACK, DEFAULT_QUERY_LIMIT
+from common.config import (
+    DEFAULT_DAYS_BACK,
+    DEFAULT_QUERY_LIMIT,
+    MAX_DAYS_BACK,
+    MAX_QUERY_LIMIT,
+    MAX_TOPIC_LENGTH,
+)
 from common.sources import NewsSource
 from mcp_app.auth import load_auth_from_env
 from mcp_app.prompt import run_get_last_week
@@ -41,20 +49,35 @@ async def landing_page(_request: Request) -> HTMLResponse:
     description="Search dominican news for a given topic",
 )
 def query_topic(
-    topic: str,
-    limit: int = DEFAULT_QUERY_LIMIT,
-    days_back: int = DEFAULT_DAYS_BACK,
-    source: NewsSource | None = None,
+    topic: Annotated[
+        str,
+        Field(
+            description='Conceptual topic or question (e.g. "reforma fiscal", "apagones").',
+            max_length=MAX_TOPIC_LENGTH,
+        ),
+    ],
+    limit: Annotated[
+        int,
+        Field(
+            description="Maximum articles to return.",
+            ge=1,
+            le=MAX_QUERY_LIMIT,
+        ),
+    ] = DEFAULT_QUERY_LIMIT,
+    days_back: Annotated[
+        int,
+        Field(
+            description="Only include articles from the last N days (by published date).",
+            ge=0,
+            le=MAX_DAYS_BACK,
+        ),
+    ] = DEFAULT_DAYS_BACK,
+    source: Annotated[
+        NewsSource | None,
+        Field(description='Optional outlet filter (e.g. "Acento", "Listin Diario").'),
+    ] = None,
 ) -> str:
-    """
-    Semantic RAG search over Dominican news (Spanish-friendly embeddings).
-
-    Args:
-        topic: Conceptual topic or question (e.g. "reforma fiscal", "apagones").
-        limit: Maximum articles to return.
-        days_back: Only include articles from the last N days (by published date).
-        source: Optional outlet name filter (e.g. "Acento", "Listin Diario").
-    """
+    """Semantic RAG search over Dominican news (Spanish-friendly embeddings)."""
     return run_query_topic(topic, limit, days_back, source)
 
 
@@ -74,7 +97,12 @@ def sources_resource():
     description="Last 1 day of articles for a news outlet as a text document",
     mime_type="text/plain",
 )
-def source_frontpage(source_id: str) -> str:
+def source_frontpage(
+    source_id: Annotated[
+        str,
+        Field(description="News outlet id or name (see news://sources)."),
+    ],
+) -> str:
     return get_source_frontpage(source_id)
 
 
@@ -82,11 +110,12 @@ def source_frontpage(source_id: str) -> str:
     name="get_last_week",
     description="Last 7 days of articles from a Dominican news outlet",
 )
-def get_last_week(source: NewsSource) -> str:
-    """
-    Args:
-        source: News outlet name (e.g. "Acento", "Listin Diario").
-    """
+def get_last_week(
+    source: Annotated[
+        NewsSource,
+        Field(description='News outlet name (e.g. "Acento", "Listin Diario").'),
+    ],
+) -> str:
     return run_get_last_week(source)
 
 

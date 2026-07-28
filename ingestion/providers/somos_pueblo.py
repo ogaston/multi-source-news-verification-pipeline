@@ -73,6 +73,8 @@ class SomosPuebloProvider(BaseNewsProvider):
             return False
 
         ignored_keywords = [
+            "/odebrecht/",
+            "/moral-valores-y-civica/",
             "/caricaturas-y-memes/",
             "/arte-y-cultura/",
             "/author/",

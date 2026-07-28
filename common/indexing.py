@@ -44,6 +44,14 @@ def _get_embed_model() -> HuggingFaceEmbedding:
     return _embed_model
 
 
+def embed_texts(texts: list[str]) -> list[list[float]]:
+    """Embed a batch of texts with the shared HuggingFace model."""
+    if not texts:
+        return []
+    model = _get_embed_model()
+    return [list(model.get_text_embedding(text)) for text in texts]
+
+
 def _get_splitter() -> SentenceSplitter:
     global _splitter
     if _splitter is None:

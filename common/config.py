@@ -11,7 +11,7 @@ CHUNK_SIZE = int(os.environ.get("CHUNK_SIZE", "512"))
 CHUNK_OVERLAP = int(os.environ.get("CHUNK_OVERLAP", "64"))
 
 MIN_CONTENT_CHARS = 50
-DEFAULT_URL_LIMIT = 5
+DEFAULT_URL_LIMIT = 100
 DEFAULT_QUERY_LIMIT = 5
 DEFAULT_DAYS_BACK = 7
 
@@ -24,3 +24,7 @@ QUERY_CANDIDATE_MULTIPLIER = 5
 QUERY_CANDIDATE_MIN = 25
 
 DATA_DIR = os.environ.get("DATA_DIR", "data")
+
+PREPROCESS_BATCH_SIZE = int(os.environ.get("PREPROCESS_BATCH_SIZE", "650"))
+# Cosine distance threshold for AHC (≈ 1 - similarity); 0.25 ≈ similarity 0.75.
+CLUSTER_DISTANCE_THRESHOLD = float(os.environ.get("CLUSTER_DISTANCE_THRESHOLD", "0.30"))

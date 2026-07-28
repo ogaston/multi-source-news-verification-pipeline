@@ -24,18 +24,19 @@ def frontpage_db(tmp_path, monkeypatch):
     with sqlite3.connect(db_path) as conn:
         conn.execute(
             """
-            CREATE TABLE news (
+            CREATE TABLE raw_articles (
                 id TEXT PRIMARY KEY,
                 source TEXT,
                 title TEXT,
                 date TEXT,
                 content TEXT,
-                url TEXT
+                url TEXT,
+                processed INTEGER NOT NULL DEFAULT 0
             )
             """
         )
         conn.executemany(
-            "INSERT INTO news (id, source, title, date, content, url) VALUES (?, ?, ?, ?, ?, ?)",
+            "INSERT INTO raw_articles (id, source, title, date, content, url) VALUES (?, ?, ?, ?, ?, ?)",
             [
                 (
                     "acento-recent",

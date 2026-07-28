@@ -38,8 +38,11 @@ class ElNuevoDiarioProvider(BaseNewsProvider):
         return result.metadata.get("category") or "Sin Categoría"
 
     def get_date(self, result: CrawlResult) -> str:
-        html = result.cleaned_html or result.html
-        if html:
+        # Prefer raw html: cleaned_html often drops <head> meta tags, leaving only
+        # Spanish time.entry-date text that normalize_date cannot parse.
+        for html in (result.html, result.cleaned_html):
+            if not html:
+                continue
             soup = BeautifulSoup(html, "html.parser")
             meta_date = soup.select_one('meta[property="article:published_time"]')
             if meta_date and meta_date.get("content"):
@@ -48,10 +51,11 @@ class ElNuevoDiarioProvider(BaseNewsProvider):
             date_el = soup.select_one("time.entry-date")
             if date_el:
                 dt = date_el.get("datetime")
-                if dt:
+                # Site puts Spanish prose in datetime=; only accept ISO-like values.
+                if dt and dt[:1].isdigit():
                     return dt.strip()
                 text = date_el.get_text(strip=True)
-                if text:
+                if text and text[:1].isdigit():
                     return text
 
         return (

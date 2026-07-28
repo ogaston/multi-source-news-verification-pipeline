@@ -77,7 +77,7 @@ def load_source_articles(
     return query_db(
         """
         SELECT id, source, title, date, content, url
-        FROM news
+        FROM raw_articles
         WHERE source = ? AND date >= ?
         ORDER BY date DESC
         """,
