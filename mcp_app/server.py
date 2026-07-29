@@ -1,8 +1,12 @@
-from __future__ import annotations
-
 import os
+import sys
 from pathlib import Path
 from typing import Annotated
+
+# mcp CLI loads this file by path; ensure the repo root is importable.
+_ROOT = Path(__file__).resolve().parent.parent
+if str(_ROOT) not in sys.path:
+    sys.path.insert(0, str(_ROOT))
 
 from mcp.server.fastmcp import FastMCP
 from mcp.types import Completion, PromptReference
@@ -12,6 +16,8 @@ from starlette.responses import HTMLResponse
 
 from common.config import (
     DEFAULT_DAYS_BACK,
+    DEFAULT_LIST_DAYS_BACK,
+    DEFAULT_LIST_STORIES_LIMIT,
     DEFAULT_QUERY_LIMIT,
     MAX_DAYS_BACK,
     MAX_QUERY_LIMIT,
@@ -21,7 +27,12 @@ from common.sources import NewsSource
 from mcp_app.auth import load_auth_from_env
 from mcp_app.prompt import run_get_last_week
 from mcp_app.resources import get_source_frontpage, list_sources_json
-from mcp_app.tools import run_search_articles, run_search_story
+from mcp_app.tools import (
+    run_get_story,
+    run_list_stories,
+    run_search_articles,
+    run_search_story,
+)
 
 MCP_HOST = os.environ.get("MCP_HOST", "127.0.0.1")
 MCP_PORT = int(os.environ.get("MCP_PORT", "8000"))
@@ -116,6 +127,62 @@ def search_story(
 ) -> str:
     """Semantic search over story descriptions; returns each story with member articles."""
     return run_search_story(query, limit, days_back, source)
+
+
+@mcp.tool(
+    name="list_stories",
+    description=(
+        "List recent news stories/clusters in compact form "
+        "(description, sources, headlines). Use get_story for full content."
+    ),
+)
+def list_stories(
+    days_back: Annotated[
+        int,
+        Field(
+            description=(
+                "Only include stories with at least one article from the last N days "
+                "(rolling window by published date)."
+            ),
+            ge=0,
+            le=MAX_DAYS_BACK,
+        ),
+    ] = DEFAULT_LIST_DAYS_BACK,
+    limit: Annotated[
+        int,
+        Field(
+            description="Maximum stories to return.",
+            ge=1,
+            le=MAX_QUERY_LIMIT,
+        ),
+    ] = DEFAULT_LIST_STORIES_LIMIT,
+    source: Annotated[
+        NewsSource | None,
+        Field(description='Optional outlet filter (e.g. "Acento", "Listin Diario").'),
+    ] = None,
+) -> str:
+    """Browse recent story clusters without a semantic query."""
+    return run_list_stories(days_back, limit, source)
+
+
+@mcp.tool(
+    name="get_story",
+    description=(
+        "Get one news story/cluster by STORY_ID with full member articles "
+        "(source, date, headline, URL, content)."
+    ),
+)
+def get_story(
+    story_id: Annotated[
+        str,
+        Field(
+            description="Story/cluster id from list_stories or search_story (STORY_ID).",
+            max_length=MAX_TOPIC_LENGTH,
+        ),
+    ],
+) -> str:
+    """Return full member articles for a single story cluster."""
+    return run_get_story(story_id)
 
 
 @mcp.resource(

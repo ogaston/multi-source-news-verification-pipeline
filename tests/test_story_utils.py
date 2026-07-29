@@ -5,7 +5,12 @@ from __future__ import annotations
 from datetime import datetime, timezone
 
 from common.indexing import RetrievedStory
-from mcp_app.utils import filter_ranked_stories, format_story_context
+from mcp_app.utils import (
+    filter_ranked_stories,
+    format_story_context,
+    format_story_detail,
+    format_story_list,
+)
 
 
 def _story(cluster_id: str = "s1") -> RetrievedStory:
@@ -64,3 +69,42 @@ def test_filter_ranked_stories_applies_date_and_source():
     )
     assert len(filtered) == 1
     assert filtered[0][0].cluster_id == "keep"
+
+
+def test_format_story_list_is_compact():
+    cluster = {
+        "cluster_id": "c1",
+        "description": "Tema X",
+        "created_at": "2026-01-01T00:00:00Z",
+    }
+    articles = [
+        {"source": "Hoy", "title": "Titular A", "content": "secret body"},
+        {"source": "Acento", "title": "Titular B", "content": "other body"},
+    ]
+    text = format_story_list([(cluster, articles)], days_back=1)
+    assert "STORY LIST (last 1 day)" in text
+    assert "STORY_ID: c1" in text
+    assert "SOURCES: Acento, Hoy" in text
+    assert "HEADLINE: Titular A" in text
+    assert "CONTENT:" not in text
+    assert "secret body" not in text
+
+
+def test_format_story_detail_includes_content():
+    text = format_story_detail(
+        "c1",
+        "Tema X",
+        "2026-01-01T00:00:00Z",
+        [
+            {
+                "source": "Hoy",
+                "date": "2026-01-02",
+                "title": "Titular",
+                "url": "https://example.com/x",
+                "content": "Texto completo",
+            }
+        ],
+    )
+    assert "STORY_ID: c1" in text
+    assert "CONTENT:\nTexto completo" in text
+    assert "URL: https://example.com/x" in text

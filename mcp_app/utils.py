@@ -112,24 +112,69 @@ def filter_ranked_stories(
     return filtered
 
 
+def format_story_detail(
+    cluster_id: str,
+    description: str,
+    created_at: str,
+    articles: list[dict],
+) -> str:
+    """Full story block: metadata + member articles with content."""
+    block = f"--- STORY: {description or ''} ---\n"
+    block += f"STORY_ID: {cluster_id}\n"
+    block += f"CREATED: {created_at or ''}\n"
+    block += f"ARTICLES: {len(articles)}\n\n"
+    for article in articles:
+        block += f"  SOURCE: {article.get('source') or ''}\n"
+        block += f"  DATE: {article.get('date') or ''}\n"
+        block += f"  HEADLINE: {article.get('title') or ''}\n"
+        block += f"  URL: {article.get('url') or ''}\n"
+        block += f"  CONTENT:\n{article.get('content') or ''}\n"
+        block += "  " + "-" * 38 + "\n\n"
+    block += "-" * 40 + "\n\n"
+    return block
+
+
 def format_story_context(
     query: str,
     stories: list[tuple[RetrievedStory, list[dict]]],
 ) -> str:
     context = f"--- STORY SEARCH FOR QUERY: '{query}' ---\n\n"
     for story, articles in stories:
-        context += f"--- STORY: {story.description} ---\n"
-        context += f"STORY_ID: {story.cluster_id}\n"
-        context += f"CREATED: {story.created_at}\n"
-        context += f"ARTICLES: {len(articles)}\n\n"
+        context += format_story_detail(
+            story.cluster_id,
+            story.description,
+            story.created_at,
+            articles,
+        )
+    return context
+
+
+def format_story_list(
+    stories: list[tuple[dict, list[dict]]],
+    *,
+    days_back: int,
+) -> str:
+    """Compact story browse: description, sources, and member headlines."""
+    day_label = "day" if days_back == 1 else "days"
+    context = f"--- STORY LIST (last {days_back} {day_label}) ---\n\n"
+    for cluster, articles in stories:
+        sources = sorted(
+            {
+                (article.get("source") or "").strip()
+                for article in articles
+                if (article.get("source") or "").strip()
+            }
+        )
+        context += f"--- STORY: {cluster.get('description') or ''} ---\n"
+        context += f"STORY_ID: {cluster.get('cluster_id') or ''}\n"
+        context += f"CREATED: {cluster.get('created_at') or ''}\n"
+        context += f"ARTICLES: {len(articles)}\n"
+        context += f"SOURCES: {', '.join(sources)}\n\n"
         for article in articles:
             context += f"  SOURCE: {article.get('source') or ''}\n"
-            context += f"  DATE: {article.get('date') or ''}\n"
             context += f"  HEADLINE: {article.get('title') or ''}\n"
-            context += f"  URL: {article.get('url') or ''}\n"
-            context += f"  CONTENT:\n{article.get('content') or ''}\n"
-            context += "  " + "-" * 38 + "\n\n"
-        context += "-" * 40 + "\n\n"
+            context += "  " + "-" * 38 + "\n"
+        context += "\n" + "-" * 40 + "\n\n"
     return context
 
 

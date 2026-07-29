@@ -1,6 +1,6 @@
 # News extraction pipeline
 
-Scrapes Dominican news outlets into **SQLite + Chroma +  LlamaIndex chunked index**, then exposes semantic search over MCP (`search_articles`, `search_story`).
+Scrapes Dominican news outlets into **SQLite + Chroma +  LlamaIndex chunked index**, then exposes semantic search and story browse over MCP (`search_articles`, `search_story`, `list_stories`, `get_story`).
 
 **Sources:** 
 - Somos Pueblo
@@ -44,6 +44,8 @@ Tools:
 
 - `search_articles(query, limit=5, days_back=7, source=None)` — semantic search across all articles. Returns the best matching **chunk** per article (plus source, date, headline, URL).
 - `search_story(query, limit=5, days_back=7, source=None)` — semantic search across story descriptions; returns matching stories with their member articles.
+- `list_stories(days_back=1, limit=20, source=None)` — browse recent story clusters in compact form (description, sources, headlines). Rolling window by article published date.
+- `get_story(story_id)` — full member articles for one story/cluster (`STORY_ID` from `list_stories` or `search_story`).
 
 Articles are split with LlamaIndex `SentenceSplitter` (`CHUNK_SIZE=512`, `CHUNK_OVERLAP=64`) into Chroma collection `news_index_v2`. Story descriptions are indexed in `story_index`.
 

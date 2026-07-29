@@ -6,6 +6,8 @@ from datetime import datetime, timedelta, timezone
 
 from common.config import (
     DEFAULT_DAYS_BACK,
+    DEFAULT_LIST_DAYS_BACK,
+    DEFAULT_LIST_STORIES_LIMIT,
     DEFAULT_QUERY_LIMIT,
     MAX_DAYS_BACK,
     MAX_QUERY_LIMIT,
@@ -13,7 +15,11 @@ from common.config import (
     QUERY_CANDIDATE_MIN,
     QUERY_CANDIDATE_MULTIPLIER,
 )
-from common.db import fetch_cluster_articles
+from common.db import (
+    fetch_cluster,
+    fetch_cluster_articles,
+    fetch_recent_clusters,
+)
 from common.indexing import retrieve_chunks, retrieve_stories
 from common.sources import NewsSource
 from mcp_app.utils import (
@@ -21,6 +27,8 @@ from mcp_app.utils import (
     filter_ranked_stories,
     format_rag_context,
     format_story_context,
+    format_story_detail,
+    format_story_list,
 )
 
 
@@ -89,3 +97,49 @@ def run_search_story(
         return f"No semantically relevant stories found for query: '{query}' ({scope})."
 
     return format_story_context(query, filtered)
+
+
+def run_list_stories(
+    days_back: int = DEFAULT_LIST_DAYS_BACK,
+    limit: int = DEFAULT_LIST_STORIES_LIMIT,
+    source: NewsSource | None = None,
+) -> str:
+    limit = min(MAX_QUERY_LIMIT, max(1, limit))
+    days_back = min(MAX_DAYS_BACK, max(0, days_back))
+    date_threshold = datetime.now(timezone.utc) - timedelta(days=days_back)
+
+    clusters = fetch_recent_clusters(
+        date_threshold.isoformat(),
+        source=source.value if source else None,
+        limit=limit,
+    )
+    if not clusters:
+        day_label = "day" if days_back == 1 else "days"
+        scope = f"last {days_back} {day_label}"
+        if source:
+            scope += f", source={source.value}"
+        return f"No stories found ({scope})."
+
+    stories = [
+        (cluster, fetch_cluster_articles(cluster["cluster_id"]))
+        for cluster in clusters
+    ]
+    return format_story_list(stories, days_back=days_back)
+
+
+def run_get_story(story_id: str) -> str:
+    story_id = (story_id or "").strip()
+    if not story_id:
+        return "Story not found: missing story_id."
+
+    cluster = fetch_cluster(story_id)
+    if cluster is None:
+        return f"Story not found: '{story_id}'."
+
+    articles = fetch_cluster_articles(story_id)
+    return format_story_detail(
+        cluster["cluster_id"],
+        cluster.get("description") or "",
+        cluster.get("created_at") or "",
+        articles,
+    )

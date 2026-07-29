@@ -264,6 +264,91 @@ def fetch_cluster_articles(cluster_id: str) -> list[dict]:
         return [dict(row) for row in rows]
 
 
+def fetch_cluster(cluster_id: str) -> dict | None:
+    """Return one cluster row, or None if missing."""
+    with sqlite3.connect(DB_NAME) as conn:
+        conn.row_factory = sqlite3.Row
+        row = conn.execute(
+            """
+            SELECT cluster_id, description, created_at
+            FROM clusters
+            WHERE cluster_id = ?
+            """,
+            (cluster_id,),
+        ).fetchone()
+        return dict(row) if row else None
+
+
+def fetch_recent_clusters(
+    date_threshold: str,
+    *,
+    source: str | None = None,
+    limit: int = 20,
+) -> list[dict]:
+    """
+    Clusters with at least one member article on/after date_threshold.
+
+    Optional source keeps clusters that have any matching outlet article
+    in the window. Ordered by total member count DESC, then newest member date.
+    """
+    with sqlite3.connect(DB_NAME) as conn:
+        conn.row_factory = sqlite3.Row
+        if source:
+            rows = conn.execute(
+                """
+                SELECT
+                    c.cluster_id,
+                    c.description,
+                    c.created_at,
+                    COUNT(a_all.id) AS article_count,
+                    MAX(a_all.date) AS latest_date
+                FROM clusters c
+                JOIN topic_clusters tc_all
+                    ON tc_all.cluster_id = c.cluster_id
+                JOIN raw_articles a_all
+                    ON a_all.id = tc_all.article_id
+                WHERE c.cluster_id IN (
+                    SELECT DISTINCT tc.cluster_id
+                    FROM topic_clusters tc
+                    JOIN raw_articles a ON a.id = tc.article_id
+                    WHERE a.date >= ?
+                      AND a.source = ?
+                )
+                GROUP BY c.cluster_id, c.description, c.created_at
+                ORDER BY article_count DESC, latest_date DESC
+                LIMIT ?
+                """,
+                (date_threshold, source, limit),
+            ).fetchall()
+        else:
+            rows = conn.execute(
+                """
+                SELECT
+                    c.cluster_id,
+                    c.description,
+                    c.created_at,
+                    COUNT(a_all.id) AS article_count,
+                    MAX(a_all.date) AS latest_date
+                FROM clusters c
+                JOIN topic_clusters tc_all
+                    ON tc_all.cluster_id = c.cluster_id
+                JOIN raw_articles a_all
+                    ON a_all.id = tc_all.article_id
+                WHERE c.cluster_id IN (
+                    SELECT DISTINCT tc.cluster_id
+                    FROM topic_clusters tc
+                    JOIN raw_articles a ON a.id = tc.article_id
+                    WHERE a.date >= ?
+                )
+                GROUP BY c.cluster_id, c.description, c.created_at
+                ORDER BY article_count DESC, latest_date DESC
+                LIMIT ?
+                """,
+                (date_threshold, limit),
+            ).fetchall()
+        return [dict(row) for row in rows]
+
+
 def fetch_clusters_with_descriptions() -> list[dict]:
     """Return clusters that have a non-null description."""
     with sqlite3.connect(DB_NAME) as conn:
