@@ -59,6 +59,51 @@ services:
       - pipeline-data:/data
     command: ["/usr/local/bin/supercronic", "/app/deploy/crontab"]
 
+  # SQLAdmin UI for browsing SQLite tables (separate Traefik host)
+  admin:
+    build: ./admin
+    image: news-pipeline-admin:latest
+    container_name: news-pipeline-admin
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      DB_NAME: /data/dominican_news_repository.db
+      ADMIN_HOST: 0.0.0.0
+      ADMIN_PORT: ${ADMIN_PORT:-8001}
+      ADMIN_USERNAME: ${ADMIN_USERNAME}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD}
+      ADMIN_SECRET_KEY: ${ADMIN_SECRET_KEY}
+    volumes:
+      - pipeline-data:/data
+    networks:
+      - proxy
+    labels:
+      - traefik.enable=true
+      - traefik.docker.network=proxy
+      - traefik.http.routers.news-admin.rule=Host(`${ADMIN_DOMAIN}`)
+      - traefik.http.routers.news-admin.entrypoints=web
+      - traefik.http.services.news-admin.loadbalancer.server.port=${ADMIN_PORT:-8001}
+    command:
+      [
+        "uvicorn",
+        "admin.app:app",
+        "--host",
+        "0.0.0.0",
+        "--port",
+        "${ADMIN_PORT:-8001}",
+      ]
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "python -c \"import socket; s=socket.create_connection(('127.0.0.1', int(__import__('os').environ.get('ADMIN_PORT','8001'))), 2); s.close()\"",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+
 volumes:
   pipeline-data:
     driver: local

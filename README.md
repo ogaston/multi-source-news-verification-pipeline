@@ -10,7 +10,7 @@ Scrapes Dominican news outlets into **SQLite + Chroma +  LlamaIndex chunked inde
 - Hoy
 - Acento
 
-**Layout:** `common/` (config, db, sources), `ingestion/` (scrape + quality gates), `mcp_app/` (MCP server), `preprocessing/` (data clustering).
+**Layout:** `common/` (config, db, sources), `ingestion/` (scrape + quality gates), `mcp_app/` (MCP server), `preprocessing/` (data clustering), `admin/` (SQLAdmin UI), `workflows/` (LangGraph multi-agent demos).
 
 ## Setup
 
@@ -61,9 +61,10 @@ The token is intentionally hardcoded so the MCP endpoint stays free to use witho
 
 ## Deploy (My personal VPS)
 
-Two always-on containers share a volume: 
+Three always-on containers share a volume:
 - **mcp** (HTTP MCP behind Traefik)
 - **scheduler** (supercronic: daily ingest at **06:00 America/Santo_Domingo**, preprocess/clustering every **15 minutes**)
+- **admin** (SQLAdmin UI behind Traefik on a separate domain)
 
 Prerequisites: Docker Compose, Traefik already running on the external `proxy` network.
 
@@ -72,16 +73,17 @@ Prerequisites: Docker Compose, Traefik already running on the external `proxy` n
 docker network create proxy
 
 cp .env.example .env
-# set MCP_DOMAIN and MCP_API_KEY (required for HTTP MCP)
+# set MCP_DOMAIN, MCP_API_KEY, ADMIN_DOMAIN, ADMIN_USERNAME, ADMIN_PASSWORD, ADMIN_SECRET_KEY
 
 docker compose up -d --build
 ```
 
 - MCP URL: `http://${MCP_DOMAIN}/mcp` (streamable HTTP). Clients must send `Authorization: Bearer <MCP_API_KEY>`.
+- Admin URL: `http://${ADMIN_DOMAIN}/admin` — log in with `ADMIN_USERNAME` / `ADMIN_PASSWORD`.
 - Switch Traefik entrypoint to `websecure` in compose labels if you terminate TLS there.
 - Manual one-shot ingest: `docker compose run --rm scheduler python -m ingestion.ingestor`
 - Manual one-shot preprocess: `docker compose run --rm scheduler python -m preprocessing.runner`
-- First image build is heavy (Playwright Chromium + embedding model bake-in).
+- First pipeline image build is heavy (Playwright Chromium + embedding model bake-in); the admin image is slim.
 
 ## Reindex
 
@@ -89,4 +91,15 @@ Required after changing `EMBED_MODEL`, `CHUNK_SIZE` / `CHUNK_OVERLAP`, or upgrad
 
 ```bash
 python -m common.reindex
+```
+
+## Workflows (LangGraph)
+
+Two-agent hello world using Groq (`greeter` → `responder`):
+
+```bash
+pip install -r workflows/requirements.txt
+# set GROQ_API_KEY in .env
+python -m workflows.hello
+python -m workflows.hello "Dominican news"
 ```
