@@ -1,19 +1,26 @@
-"""Generate Spanish cluster descriptions via Ollama."""
+"""Generate Spanish cluster descriptions via Groq."""
 
 from __future__ import annotations
 
 import logging
+import re
+import time
 
 import httpx
 
 from common.config import (
     CLUSTER_DESC_MAX_CHARS,
-    OLLAMA_BASE_URL,
-    OLLAMA_MODEL,
-    OLLAMA_THINK,
+    GROQ_API_KEY,
+    GROQ_MODEL,
 )
 
 logger = logging.getLogger(__name__)
+
+GROQ_CHAT_URL = "https://api.groq.com/openai/v1/chat/completions"
+# Room for gpt-oss reasoning + a short Spanish blurb.
+GROQ_DESC_MAX_TOKENS = 1024
+GROQ_MAX_RETRIES = 3
+_RETRY_WAIT_RE = re.compile(r"try again in ([\d.]+)\s*s", re.IGNORECASE)
 
 
 def _system_prompt(max_chars: int) -> str:
@@ -61,7 +68,7 @@ def fallback_story_description(
     *,
     max_chars: int = CLUSTER_DESC_MAX_CHARS,
 ) -> str:
-    """Deterministic summary when Ollama is unavailable or returns empty."""
+    """Deterministic summary when Groq is unavailable or returns empty."""
     if not articles:
         return "Historia sin artículos."
 
@@ -78,44 +85,96 @@ def fallback_story_description(
     return _truncate(prefix, max_chars)
 
 
-def call_ollama(
+def _retry_wait_seconds(response: httpx.Response, attempt: int) -> float:
+    match = _RETRY_WAIT_RE.search(response.text or "")
+    if match:
+        return float(match.group(1)) + 0.5
+    return 2.0 * (2 ** (attempt - 1))
+
+
+def call_groq(
     user_prompt: str,
     *,
-    base_url: str = OLLAMA_BASE_URL,
-    model: str = OLLAMA_MODEL,
+    api_key: str | None = None,
+    model: str = GROQ_MODEL,
     max_chars: int = CLUSTER_DESC_MAX_CHARS,
     timeout: float = 120.0,
 ) -> str:
-    """Call Ollama /api/chat and return the assistant message content."""
-    url = f"{base_url.rstrip('/')}/api/chat"
+    """Call Groq chat completions and return the assistant message content."""
+    key = api_key if api_key is not None else GROQ_API_KEY
+    if not key:
+        raise RuntimeError("GROQ_API_KEY is not set")
+
     payload = {
         "model": model,
-        "stream": False,
-        "think": OLLAMA_THINK,
+        "temperature": 0,
+        "max_tokens": GROQ_DESC_MAX_TOKENS,
         "messages": [
             {"role": "system", "content": _system_prompt(max_chars)},
             {"role": "user", "content": user_prompt},
         ],
     }
+    headers = {
+        "Authorization": f"Bearer {key}",
+        "Content-Type": "application/json",
+    }
+
+    last_error: Exception | None = None
     with httpx.Client(timeout=timeout) as client:
-        response = client.post(url, json=payload)
-        response.raise_for_status()
-        data = response.json()
-    content = (data.get("message") or {}).get("content") or ""
-    return content.strip()
+        for attempt in range(1, GROQ_MAX_RETRIES + 1):
+            try:
+                response = client.post(
+                    GROQ_CHAT_URL, json=payload, headers=headers
+                )
+                if response.status_code == 429 and attempt < GROQ_MAX_RETRIES:
+                    wait = _retry_wait_seconds(response, attempt)
+                    logger.warning(
+                        "Groq rate limit; retrying in %.1fs (attempt %s/%s)",
+                        wait,
+                        attempt,
+                        GROQ_MAX_RETRIES,
+                    )
+                    time.sleep(wait)
+                    continue
+                response.raise_for_status()
+                data = response.json()
+                choices = data.get("choices") or []
+                if not choices:
+                    return ""
+                message = choices[0].get("message") or {}
+                content = message.get("content") or ""
+                return content.strip()
+            except httpx.HTTPStatusError as exc:
+                last_error = exc
+                if (
+                    exc.response is not None
+                    and exc.response.status_code == 429
+                    and attempt < GROQ_MAX_RETRIES
+                ):
+                    wait = _retry_wait_seconds(exc.response, attempt)
+                    time.sleep(wait)
+                    continue
+                raise
+            except httpx.HTTPError as exc:
+                last_error = exc
+                raise
+
+    if last_error is not None:
+        raise last_error
+    return ""
 
 
 def describe_cluster(
     articles: list[dict],
     *,
-    base_url: str = OLLAMA_BASE_URL,
-    model: str = OLLAMA_MODEL,
+    api_key: str | None = None,
+    model: str = GROQ_MODEL,
     max_chars: int = CLUSTER_DESC_MAX_CHARS,
 ) -> str:
     """
     Generate a Spanish description for a cluster/story.
 
-    Always returns a non-empty string (Ollama result or fallback),
+    Always returns a non-empty string (Groq result or fallback),
     truncated to at most ``max_chars`` characters.
     """
     if not articles:
@@ -123,14 +182,15 @@ def describe_cluster(
 
     prompt = build_cluster_prompt(articles, max_chars=max_chars)
     try:
-        description = call_ollama(
-            prompt, base_url=base_url, model=model, max_chars=max_chars
+        description = call_groq(
+            prompt, api_key=api_key, model=model, max_chars=max_chars
         )
     except Exception as exc:
-        logger.warning("Ollama cluster description failed: %s", exc)
+        logger.warning("Groq cluster description failed: %s", exc)
         return fallback_story_description(articles, max_chars=max_chars)
 
     description = (description or "").strip()
     if description:
         return _truncate(description, max_chars)
+    logger.warning("Groq returned empty content; using fallback description")
     return fallback_story_description(articles, max_chars=max_chars)

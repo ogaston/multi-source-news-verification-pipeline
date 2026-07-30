@@ -63,7 +63,7 @@ The token is intentionally hardcoded so the MCP endpoint stays free to use witho
 
 Three always-on containers share a volume:
 - **mcp** (HTTP MCP behind Traefik)
-- **scheduler** (supercronic: ingest at **06:00 / 12:00 / 18:00 / 22:00 America/Santo_Domingo**, preprocess/clustering every **15 minutes**, story-audit every **15 minutes**). Ingest skips known URLs and duplicate `article_key` fingerprints (`date` day + source + title).
+- **scheduler** (supercronic: ingest at **06:00 / 12:00 / 18:00 / 22:00 America/Santo_Domingo**, preprocess/clustering every **15 minutes** with Groq `openai/gpt-oss-20b` cluster descriptions, story-audit every **15 minutes**). Ingest skips known URLs and duplicate `article_key` fingerprints (`date` day + source + title).
 - **admin** (SQLAdmin UI behind Traefik on a separate domain)
 
 Prerequisites: Docker Compose, Traefik already running on the external `proxy` network.
@@ -74,7 +74,7 @@ docker network create proxy
 
 cp .env.example .env
 # set MCP_DOMAIN, MCP_API_KEY, ADMIN_DOMAIN, ADMIN_USERNAME, ADMIN_PASSWORD, ADMIN_SECRET_KEY
-# set DEEPSEEK_API_KEY for story-audit (scheduler)
+# set GROQ_API_KEY for cluster descriptions; DEEPSEEK_API_KEY for story-audit
 
 docker compose up -d --build
 ```
