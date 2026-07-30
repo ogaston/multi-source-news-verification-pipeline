@@ -29,7 +29,7 @@ python -m ingestion.ingestor --source Acento --limit 10
 python -m ingestion.ingestor --write-json     # also dump debug JSON under data/
 ```
 
-Incremental: URLs already in SQLite are skipped.
+Incremental: URLs already in SQLite are skipped before scrape; after scrape, articles with the same `article_key` (calendar day + source + normalized title) are also skipped.
 
 ## MCP (RAG query)
 
@@ -63,7 +63,7 @@ The token is intentionally hardcoded so the MCP endpoint stays free to use witho
 
 Three always-on containers share a volume:
 - **mcp** (HTTP MCP behind Traefik)
-- **scheduler** (supercronic: daily ingest at **06:00 America/Santo_Domingo**, preprocess/clustering every **15 minutes**)
+- **scheduler** (supercronic: ingest at **06:00 / 12:00 / 18:00 / 22:00 America/Santo_Domingo**, preprocess/clustering every **15 minutes**, story-audit every **15 minutes**). Ingest skips known URLs and duplicate `article_key` fingerprints (`date` day + source + title).
 - **admin** (SQLAdmin UI behind Traefik on a separate domain)
 
 Prerequisites: Docker Compose, Traefik already running on the external `proxy` network.
@@ -74,6 +74,7 @@ docker network create proxy
 
 cp .env.example .env
 # set MCP_DOMAIN, MCP_API_KEY, ADMIN_DOMAIN, ADMIN_USERNAME, ADMIN_PASSWORD, ADMIN_SECRET_KEY
+# set DEEPSEEK_API_KEY for story-audit (scheduler)
 
 docker compose up -d --build
 ```
@@ -83,6 +84,7 @@ docker compose up -d --build
 - Switch Traefik entrypoint to `websecure` in compose labels if you terminate TLS there.
 - Manual one-shot ingest: `docker compose run --rm scheduler python -m ingestion.ingestor`
 - Manual one-shot preprocess: `docker compose run --rm scheduler python -m preprocessing.runner`
+- Manual one-shot story-audit: `docker compose run --rm scheduler python -m agents.story_audit`
 - First pipeline image build is heavy (Playwright Chromium + embedding model bake-in); the admin image is slim.
 
 ## Reindex
@@ -95,25 +97,23 @@ python -m common.reindex
 
 ## Agents (LangGraph)
 
-Two-agent hello world using Groq (`greeter` → `responder`):
-
-```bash
-pip install -r agents/requirements.txt
-# set GROQ_API_KEY in .env
-python -m agents.hello
-python -m agents.hello "Dominican news"
-```
-
-Story-audit graph (Groq via `agents.llm.get_llm`).
+Story-audit graph (DeepSeek via `agents.llm.get_llm`).
 One module per agent under `agents/` (`claim_extractor`, `fact_checker`,
-`rhetorical_auditor`, `judger`, `synthesizer`), each with `SYSTEM_PROMPT` and
-`ChatPromptTemplate` injecting state fields (`story`, `claims`, `fact_check`,
-`rhetorical_audit`, `judgment`).
+`rhetorical_auditor`, `judger`, `synthesizer`).
 
 `claim_extractor` → `fact_checker` ↘  
 `rhetorical_auditor` → `judger` → `synthesizer`
 
+**Default mode** loads unprocessed clusters (`clusters.processed = 0`) in batches of
+`STORY_AUDIT_BATCH_SIZE` (default 5), audits each until none remain, upserts
+`verified_articles`, and sets `processed = 1`. The scheduler runs this every
+**15 minutes**.
+
 ```bash
-# set GROQ_API_KEY in .env
+pip install -r agents/requirements.txt
+# set DEEPSEEK_API_KEY in agents/.env (or root .env for Docker)
 python -m agents.story_audit
+python -m agents.story_audit --batch-size 10
+python -m agents.story_audit --story agents/examples/luis_pie_cluster.txt  # single file
+python -m agents.story_audit --no-save  # dry run
 ```

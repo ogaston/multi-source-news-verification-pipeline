@@ -5,7 +5,7 @@ from __future__ import annotations
 from langchain_core.messages import AIMessage
 from langchain_core.prompts import ChatPromptTemplate
 
-from agents.llm import get_llm
+from agents.llm import invoke_llm
 from agents.state import StoryAuditState
 
 SYSTEM_PROMPT = """\
@@ -20,6 +20,7 @@ Your job:
 - Do not invent facts not present in the source material.
 
 Output a clear numbered list of claims only.
+Do not include preamble, analysis, or closing remarks—only the numbered claims.
 """
 
 PROMPT = ChatPromptTemplate.from_messages(
@@ -31,8 +32,7 @@ PROMPT = ChatPromptTemplate.from_messages(
 
 
 def run(state: StoryAuditState) -> dict:
-    response = (PROMPT | get_llm()).invoke({"story": state.get("story") or ""})
-    content = response.content
+    content = invoke_llm(PROMPT, {"story": state.get("story") or ""})
     return {
         "claims": content,
         "messages": [AIMessage(content=content, name="claim_extractor")],

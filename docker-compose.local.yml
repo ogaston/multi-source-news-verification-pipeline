@@ -5,6 +5,7 @@
 # Admin: http://localhost:8001/admin
 # One-shot ingest:     docker compose -f docker-compose.local.yml run --rm scheduler python -m ingestion.ingestor
 # One-shot preprocess: docker compose -f docker-compose.local.yml run --rm scheduler python -m preprocessing.runner
+# One-shot story-audit: docker compose -f docker-compose.local.yml run --rm scheduler python -m agents.story_audit
 
 services:
   mcp:

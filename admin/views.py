@@ -2,7 +2,7 @@
 
 from sqladmin import ModelView
 
-from admin.models import Cluster, RawArticle, TopicCluster
+from admin.models import Cluster, RawArticle, TopicCluster, VerifiedArticle
 
 
 def _truncate(value: str | None, limit: int = 120) -> str:
@@ -89,6 +89,7 @@ class ClusterAdmin(ModelView, model=Cluster):
     column_list = [
         Cluster.cluster_id,
         Cluster.description,
+        Cluster.processed,
         Cluster.created_at,
     ]
     column_searchable_list = [
@@ -97,8 +98,56 @@ class ClusterAdmin(ModelView, model=Cluster):
     ]
     column_sortable_list = [
         Cluster.cluster_id,
+        Cluster.processed,
+        Cluster.created_at,
+    ]
+    column_details_list = [
+        Cluster.cluster_id,
+        Cluster.description,
+        Cluster.processed,
         Cluster.created_at,
     ]
     column_formatters = {
         Cluster.description: lambda m, a: _truncate(m.description),
+    }
+
+
+class VerifiedArticleAdmin(ModelView, model=VerifiedArticle):
+    name = "Verified Article"
+    name_plural = "Verified Articles"
+    icon = "fa-solid fa-check-double"
+
+    column_list = [
+        VerifiedArticle.id,
+        VerifiedArticle.cluster_id,
+        VerifiedArticle.title,
+        VerifiedArticle.date,
+        VerifiedArticle.sources,
+        VerifiedArticle.status,
+        VerifiedArticle.created_at,
+    ]
+    column_searchable_list = [
+        VerifiedArticle.title,
+        VerifiedArticle.cluster_id,
+        VerifiedArticle.sources,
+        VerifiedArticle.id,
+    ]
+    column_sortable_list = [
+        VerifiedArticle.date,
+        VerifiedArticle.status,
+        VerifiedArticle.created_at,
+    ]
+    column_details_list = [
+        VerifiedArticle.id,
+        VerifiedArticle.cluster_id,
+        VerifiedArticle.title,
+        VerifiedArticle.content,
+        VerifiedArticle.image_url,
+        VerifiedArticle.date,
+        VerifiedArticle.sources,
+        VerifiedArticle.status,
+        VerifiedArticle.created_at,
+    ]
+    column_formatters = {
+        VerifiedArticle.content: lambda m, a: _truncate(m.content),
     }

@@ -8,7 +8,12 @@ from sqlalchemy import create_engine
 from starlette.middleware.sessions import SessionMiddleware
 
 from admin.auth import AdminAuth
-from admin.views import ClusterAdmin, RawArticleAdmin, TopicClusterAdmin
+from admin.views import (
+    ClusterAdmin,
+    RawArticleAdmin,
+    TopicClusterAdmin,
+    VerifiedArticleAdmin,
+)
 
 DB_NAME = os.environ.get("DB_NAME", "dominican_news_repository.db")
 ADMIN_SECRET_KEY = os.environ.get("ADMIN_SECRET_KEY", "dev-insecure-secret-change-me")
@@ -31,3 +36,4 @@ admin = Admin(
 admin.add_view(RawArticleAdmin)
 admin.add_view(TopicClusterAdmin)
 admin.add_view(ClusterAdmin)
+admin.add_view(VerifiedArticleAdmin)

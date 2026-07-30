@@ -9,7 +9,13 @@ import re
 from crawl4ai import AsyncWebCrawler
 
 from common.config import DATA_DIR, DEFAULT_URL_LIMIT
-from common.db import existing_urls, init_db, save_news
+from common.db import (
+    article_fingerprint,
+    article_key_exists,
+    existing_urls,
+    init_db,
+    save_news,
+)
 from common.sources import NewsSource
 from ingestion.pipeline import prepare_article
 from ingestion.providers import NEWS_PROVIDERS
@@ -111,9 +117,20 @@ async def run_ingest(
                     continue
 
                 assert prepared is not None
+                key = article_fingerprint(
+                    prepared.get("source"),
+                    prepared["title"],
+                    prepared["date"],
+                )
+                if article_key_exists(key):
+                    print(f"Skipped {url}: duplicate article_key")
+                    continue
+
                 if write_json:
                     save_in_json(prepared, url)
-                save_news(prepared)
+                saved = save_news(prepared)
+                if saved is None:
+                    print(f"Skipped {url}: duplicate article_key")
 
     print("Scraping complete")
     print("Done")

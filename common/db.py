@@ -6,6 +6,17 @@ from common.config import DB_NAME, PREPROCESS_BATCH_SIZE
 from common.indexing import index_article
 
 
+def article_fingerprint(source: str | None, title: str, date: str) -> str:
+    """
+    Stable dedup key: sha256 of calendar day + source + normalized title.
+    Expects `date` as UTC ISO-8601 (YYYY-MM-DD...).
+    """
+    day = str(date)[:10]
+    norm_title = " ".join((title or "").casefold().split())
+    payload = f"{day}|{source or ''}|{norm_title}"
+    return hashlib.sha256(payload.encode()).hexdigest()
+
+
 def _table_columns(conn: sqlite3.Connection, table: str) -> set[str]:
     rows = conn.execute(f"PRAGMA table_info({table})").fetchall()
     return {row[1] for row in rows}
@@ -33,6 +44,62 @@ def _migrate_topic_clusters_drop_description(conn: sqlite3.Connection) -> None:
     conn.execute("ALTER TABLE topic_clusters_new RENAME TO topic_clusters")
 
 
+def _migrate_raw_articles_article_key(conn: sqlite3.Connection) -> None:
+    """Add article_key column, backfill earliest rows per fingerprint, unique index."""
+    columns = _table_columns(conn, "raw_articles")
+    if not columns:
+        return
+    if "article_key" not in columns:
+        conn.execute("ALTER TABLE raw_articles ADD COLUMN article_key TEXT")
+
+    rows = conn.execute(
+        """
+        SELECT id, source, title, date, scraped_at
+        FROM raw_articles
+        WHERE article_key IS NULL
+          AND date IS NOT NULL
+          AND title IS NOT NULL
+        ORDER BY scraped_at ASC, id ASC
+        """
+    ).fetchall()
+
+    seen_keys: set[str] = set()
+    # Existing non-null keys count as taken (partial re-runs).
+    for (existing_key,) in conn.execute(
+        "SELECT article_key FROM raw_articles WHERE article_key IS NOT NULL"
+    ):
+        seen_keys.add(existing_key)
+
+    for row_id, source, title, date, _scraped_at in rows:
+        key = article_fingerprint(source, title, date)
+        if key in seen_keys:
+            # Collision: keep earliest row's key; leave this row NULL.
+            continue
+        conn.execute(
+            "UPDATE raw_articles SET article_key = ? WHERE id = ?",
+            (key, row_id),
+        )
+        seen_keys.add(key)
+
+    conn.execute(
+        """
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_raw_articles_article_key
+        ON raw_articles(article_key)
+        WHERE article_key IS NOT NULL
+        """
+    )
+
+
+def _migrate_clusters_processed(conn: sqlite3.Connection) -> None:
+    """Add clusters.processed if an older schema is present."""
+    columns = _table_columns(conn, "clusters")
+    if not columns or "processed" in columns:
+        return
+    conn.execute(
+        "ALTER TABLE clusters ADD COLUMN processed INTEGER NOT NULL DEFAULT 0"
+    )
+
+
 def init_db():
     conn = sqlite3.connect(DB_NAME)
     conn.execute("""
@@ -46,7 +113,8 @@ def init_db():
             author TEXT,
             category TEXT,
             scraped_at TEXT,
-            processed INTEGER NOT NULL DEFAULT 0
+            processed INTEGER NOT NULL DEFAULT 0,
+            article_key TEXT
         )
     """)
     conn.execute("""
@@ -62,10 +130,26 @@ def init_db():
         CREATE TABLE IF NOT EXISTS clusters (
             cluster_id TEXT PRIMARY KEY,
             description TEXT,
+            created_at TEXT NOT NULL,
+            processed INTEGER NOT NULL DEFAULT 0
+        )
+    """)
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS verified_articles (
+            id TEXT PRIMARY KEY,
+            cluster_id TEXT NOT NULL UNIQUE,
+            title TEXT NOT NULL,
+            content TEXT NOT NULL,
+            image_url TEXT,
+            date TEXT,
+            sources TEXT,
+            status TEXT NOT NULL DEFAULT 'draft',
             created_at TEXT NOT NULL
         )
     """)
     _migrate_topic_clusters_drop_description(conn)
+    _migrate_raw_articles_article_key(conn)
+    _migrate_clusters_processed(conn)
     conn.commit()
     conn.close()
 
@@ -77,6 +161,21 @@ def url_exists(url: str) -> bool:
     count = cursor.fetchone()[0]
     conn.close()
     return count > 0
+
+
+def article_key_exists(key: str) -> bool:
+    """Return True if an article with this fingerprint is already stored."""
+    if not key:
+        return False
+    conn = sqlite3.connect(DB_NAME)
+    cursor = conn.cursor()
+    cursor.execute(
+        "SELECT 1 FROM raw_articles WHERE article_key = ? LIMIT 1",
+        (key,),
+    )
+    found = cursor.fetchone() is not None
+    conn.close()
+    return found
 
 
 def existing_urls(urls: list[str]) -> set[str]:
@@ -100,7 +199,11 @@ def existing_urls(urls: list[str]) -> set[str]:
     return known
 
 
-def save_news(news: dict) -> str:
+def save_news(news: dict) -> str | None:
+    """
+    Persist article to SQLite and Chroma.
+    Returns news id, or None if skipped due to article_key collision on a new URL.
+    """
     conn = sqlite3.connect(DB_NAME)
     cursor = conn.cursor()
 
@@ -111,13 +214,25 @@ def save_news(news: dict) -> str:
     source = news.get("source")
     date = news["date"]
     url = news["url"]
+    key = article_fingerprint(source, title, date)
+
+    # Different URL, same fingerprint → skip (do not overwrite existing row).
+    cursor.execute(
+        "SELECT id, url FROM raw_articles WHERE article_key = ? LIMIT 1",
+        (key,),
+    )
+    existing = cursor.fetchone()
+    if existing is not None and existing[1] != url:
+        conn.close()
+        return None
 
     cursor.execute(
         """
     INSERT INTO raw_articles (
-        id, url, source, title, content, date, author, category, scraped_at, processed
+        id, url, source, title, content, date, author, category,
+        scraped_at, processed, article_key
     )
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?)
     ON CONFLICT(url) DO UPDATE SET
         source = excluded.source,
         title = excluded.title,
@@ -125,7 +240,8 @@ def save_news(news: dict) -> str:
         date = excluded.date,
         author = excluded.author,
         category = excluded.category,
-        scraped_at = excluded.scraped_at
+        scraped_at = excluded.scraped_at,
+        article_key = excluded.article_key
     """,
         (
             news_id,
@@ -137,6 +253,7 @@ def save_news(news: dict) -> str:
             news["author"],
             news["category"],
             scraped_at,
+            key,
         ),
     )
     conn.commit()
@@ -223,6 +340,7 @@ def insert_clusters(
     """
     Insert cluster metadata rows.
     Each row is (cluster_id, description, created_at).
+    New rows default to processed=0.
     """
     if not rows:
         return
@@ -230,8 +348,8 @@ def insert_clusters(
         conn.executemany(
             """
             INSERT OR IGNORE INTO clusters
-                (cluster_id, description, created_at)
-            VALUES (?, ?, ?)
+                (cluster_id, description, created_at, processed)
+            VALUES (?, ?, ?, 0)
             """,
             rows,
         )
@@ -270,8 +388,100 @@ def fetch_cluster(cluster_id: str) -> dict | None:
         conn.row_factory = sqlite3.Row
         row = conn.execute(
             """
-            SELECT cluster_id, description, created_at
+            SELECT cluster_id, description, created_at, processed
             FROM clusters
+            WHERE cluster_id = ?
+            """,
+            (cluster_id,),
+        ).fetchone()
+        return dict(row) if row else None
+
+
+def fetch_unprocessed_clusters(limit: int) -> list[dict]:
+    """
+    Return up to `limit` clusters with processed=0 that have a description.
+    Oldest created_at first.
+    """
+    with sqlite3.connect(DB_NAME) as conn:
+        conn.row_factory = sqlite3.Row
+        rows = conn.execute(
+            """
+            SELECT cluster_id, description, created_at, processed
+            FROM clusters
+            WHERE processed = 0
+              AND description IS NOT NULL
+              AND TRIM(description) != ''
+            ORDER BY created_at ASC
+            LIMIT ?
+            """,
+            (limit,),
+        ).fetchall()
+        return [dict(row) for row in rows]
+
+
+def mark_cluster_processed(cluster_id: str) -> None:
+    with sqlite3.connect(DB_NAME) as conn:
+        conn.execute(
+            "UPDATE clusters SET processed = 1 WHERE cluster_id = ?",
+            (cluster_id,),
+        )
+        conn.commit()
+
+
+def insert_verified_article(
+    *,
+    cluster_id: str,
+    title: str,
+    content: str,
+    image_url: str | None = None,
+    date: str | None = None,
+    sources: str | None = None,
+    status: str = "draft",
+) -> str:
+    """
+    Upsert a verified article for cluster_id.
+    Returns the article id. Does not overwrite created_at on conflict.
+    """
+    article_id = hashlib.sha256(f"verified:{cluster_id}".encode()).hexdigest()
+    created_at = datetime.now().isoformat()
+    with sqlite3.connect(DB_NAME) as conn:
+        conn.execute(
+            """
+            INSERT INTO verified_articles (
+                id, cluster_id, title, content, image_url, date, sources, status, created_at
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(cluster_id) DO UPDATE SET
+                title = excluded.title,
+                content = excluded.content,
+                image_url = excluded.image_url,
+                date = excluded.date,
+                sources = excluded.sources,
+                status = excluded.status
+            """,
+            (
+                article_id,
+                cluster_id,
+                title,
+                content,
+                image_url,
+                date,
+                sources,
+                status,
+                created_at,
+            ),
+        )
+        conn.commit()
+    return article_id
+
+
+def fetch_verified_article(cluster_id: str) -> dict | None:
+    with sqlite3.connect(DB_NAME) as conn:
+        conn.row_factory = sqlite3.Row
+        row = conn.execute(
+            """
+            SELECT id, cluster_id, title, content, image_url, date, sources, status, created_at
+            FROM verified_articles
             WHERE cluster_id = ?
             """,
             (cluster_id,),

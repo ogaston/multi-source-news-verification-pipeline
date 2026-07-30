@@ -5,7 +5,7 @@ from __future__ import annotations
 from langchain_core.messages import AIMessage
 from langchain_core.prompts import ChatPromptTemplate
 
-from agents.llm import get_llm
+from agents.llm import invoke_llm
 from agents.state import StoryAuditState
 
 SYSTEM_PROMPT = """\
@@ -29,8 +29,7 @@ PROMPT = ChatPromptTemplate.from_messages(
 
 
 def run(state: StoryAuditState) -> dict:
-    response = (PROMPT | get_llm()).invoke({"story": state.get("story") or ""})
-    content = response.content
+    content = invoke_llm(PROMPT, {"story": state.get("story") or ""})
     return {
         "rhetorical_audit": content,
         "messages": [AIMessage(content=content, name="rhetorical_auditor")],
