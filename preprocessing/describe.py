@@ -15,13 +15,17 @@ from common.config import (
 
 logger = logging.getLogger(__name__)
 
-SYSTEM_PROMPT = (
-    "Eres un asistente que resume noticias dominicanas. "
-    "Dado un conjunto de artículos sobre el mismo tema o evento, "
-    "escribe una breve descripción en español (2-4 oraciones) que "
-    "sintetice de qué trata la historia. No inventes hechos; "
-    "basate solo en los artículos. No uses viñetas ni títulos."
-)
+
+def _system_prompt(max_chars: int) -> str:
+    return (
+        "Eres un asistente que resume noticias dominicanas. "
+        "Dado un conjunto de artículos sobre el mismo tema o evento, "
+        f"escribe una breve descripción en español de como máximo {max_chars} caracteres "
+        "(idealmente 2-4 oraciones) que sintetice de qué trata la historia. "
+        "No inventes hechos; basate solo en los artículos. "
+        "No uses viñetas ni títulos. "
+        f"No excedas {max_chars} caracteres."
+    )
 
 
 def _truncate(text: str | None, max_chars: int) -> str:
@@ -48,7 +52,7 @@ def build_cluster_prompt(
         parts.append(
             f"--- Artículo {i} ({source}, {date}) ---\nTítulo: {title}\n{content}\n"
         )
-    parts.append("Descripción breve en español:")
+    parts.append(f"Descripción breve en español (máximo {max_chars} caracteres):")
     return "\n".join(parts)
 
 
@@ -70,8 +74,8 @@ def fallback_story_description(
     if len(articles) > 1:
         prefix = f"{prefix}; {len(articles)} artículos"
     if content:
-        return f"{prefix}. {content}"
-    return prefix
+        return _truncate(f"{prefix}. {content}", max_chars)
+    return _truncate(prefix, max_chars)
 
 
 def call_ollama(
@@ -79,6 +83,7 @@ def call_ollama(
     *,
     base_url: str = OLLAMA_BASE_URL,
     model: str = OLLAMA_MODEL,
+    max_chars: int = CLUSTER_DESC_MAX_CHARS,
     timeout: float = 120.0,
 ) -> str:
     """Call Ollama /api/chat and return the assistant message content."""
@@ -88,7 +93,7 @@ def call_ollama(
         "stream": False,
         "think": OLLAMA_THINK,
         "messages": [
-            {"role": "system", "content": SYSTEM_PROMPT},
+            {"role": "system", "content": _system_prompt(max_chars)},
             {"role": "user", "content": user_prompt},
         ],
     }
@@ -110,19 +115,22 @@ def describe_cluster(
     """
     Generate a Spanish description for a cluster/story.
 
-    Always returns a non-empty string (Ollama result or fallback).
+    Always returns a non-empty string (Ollama result or fallback),
+    truncated to at most ``max_chars`` characters.
     """
     if not articles:
         return fallback_story_description(articles, max_chars=max_chars)
 
     prompt = build_cluster_prompt(articles, max_chars=max_chars)
     try:
-        description = call_ollama(prompt, base_url=base_url, model=model)
+        description = call_ollama(
+            prompt, base_url=base_url, model=model, max_chars=max_chars
+        )
     except Exception as exc:
         logger.warning("Ollama cluster description failed: %s", exc)
         return fallback_story_description(articles, max_chars=max_chars)
 
     description = (description or "").strip()
     if description:
-        return description
+        return _truncate(description, max_chars)
     return fallback_story_description(articles, max_chars=max_chars)

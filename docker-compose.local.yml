@@ -1,0 +1,103 @@
+# Local development — no Traefik. Publish ports on localhost.
+# Usage: docker compose -f docker-compose.local.yml up -d --build
+#
+# MCP:   http://localhost:8000/mcp  (Authorization: Bearer $MCP_API_KEY)
+# Admin: http://localhost:8001/admin
+# One-shot ingest:     docker compose -f docker-compose.local.yml run --rm scheduler python -m ingestion.ingestor
+# One-shot preprocess: docker compose -f docker-compose.local.yml run --rm scheduler python -m preprocessing.runner
+
+services:
+  mcp:
+    build: .
+    image: news-pipeline:latest
+    container_name: news-pipeline-mcp-local
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      DB_NAME: /data/dominican_news_repository.db
+      CHROMA_PATH: /data/chroma_db
+      DATA_DIR: /data/debug_json
+      HF_HOME: /opt/hf_cache
+      MCP_HOST: 0.0.0.0
+      MCP_PORT: ${MCP_PORT:-8000}
+      MCP_TRANSPORT: streamable-http
+      MCP_API_KEY: ${MCP_API_KEY:-5cfb757b93c423b4bd8fcc6c65a5139304978503d5a1be38}
+    ports:
+      - "${MCP_PORT:-8000}:${MCP_PORT:-8000}"
+    volumes:
+      - pipeline-data:/data
+    command: ["python", "-m", "mcp_app.server"]
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "python -c \"import socket; s=socket.create_connection(('127.0.0.1', int(__import__('os').environ.get('MCP_PORT','8000'))), 2); s.close()\"",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
+  scheduler:
+    build: .
+    image: news-pipeline:latest
+    container_name: news-pipeline-scheduler-local
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      DB_NAME: /data/dominican_news_repository.db
+      DEFAULT_URL_LIMIT: ${DEFAULT_URL_LIMIT:-5}
+      CHROMA_PATH: /data/chroma_db
+      DATA_DIR: /data/debug_json
+      HF_HOME: /opt/hf_cache
+      TZ: America/Santo_Domingo
+      OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-http://host.docker.internal:11434}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    volumes:
+      - pipeline-data:/data
+    command: ["/usr/local/bin/supercronic", "/app/deploy/crontab"]
+
+  admin:
+    build: ./admin
+    image: news-pipeline-admin:latest
+    container_name: news-pipeline-admin-local
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      DB_NAME: /data/dominican_news_repository.db
+      ADMIN_HOST: 0.0.0.0
+      ADMIN_PORT: ${ADMIN_PORT:-8001}
+      ADMIN_USERNAME: ${ADMIN_USERNAME:-admin}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:-changeme}
+      ADMIN_SECRET_KEY: ${ADMIN_SECRET_KEY:-local-dev-secret-change-me}
+    ports:
+      - "${ADMIN_PORT:-8001}:${ADMIN_PORT:-8001}"
+    volumes:
+      - pipeline-data:/data
+    command:
+      [
+        "uvicorn",
+        "admin.app:app",
+        "--host",
+        "0.0.0.0",
+        "--port",
+        "${ADMIN_PORT:-8001}",
+      ]
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "python -c \"import socket; s=socket.create_connection(('127.0.0.1', int(__import__('os').environ.get('ADMIN_PORT','8001'))), 2); s.close()\"",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+
+volumes:
+  pipeline-data:
+    driver: local

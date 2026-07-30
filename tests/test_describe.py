@@ -37,7 +37,7 @@ class TestBuildClusterPrompt:
         assert "Titular dos" in prompt
         assert "Acento" in prompt
         assert "Hoy" in prompt
-        assert "Descripción breve en español" in prompt
+        assert "Descripción breve en español (máximo 800 caracteres)" in prompt
 
     def test_truncates_long_content(self):
         long_body = "x" * 500
@@ -47,6 +47,7 @@ class TestBuildClusterPrompt:
         )
         assert "…" in prompt
         assert "x" * 500 not in prompt
+        assert "máximo 50 caracteres" in prompt
 
 
 class TestFallbackStoryDescription:
@@ -65,6 +66,14 @@ class TestFallbackStoryDescription:
         )
         assert "2 artículos" in text
 
+    def test_respects_max_chars(self):
+        text = fallback_story_description(
+            [_article("Titular largo", "y" * 400)],
+            max_chars=60,
+        )
+        assert len(text) <= 60
+        assert text.endswith("…")
+
 
 class TestDescribeCluster:
     def test_singleton_uses_ollama(self):
@@ -76,6 +85,7 @@ class TestDescribeCluster:
             result = describe_cluster(articles)
         assert result == "Resumen singleton."
         mock_call.assert_called_once()
+        assert mock_call.call_args.kwargs["max_chars"] == 800
 
     def test_empty_uses_fallback(self):
         assert describe_cluster([]) == "Historia sin artículos."
@@ -92,6 +102,16 @@ class TestDescribeCluster:
             result = describe_cluster(articles)
         assert result == "Resumen del cluster."
         mock_call.assert_called_once()
+
+    def test_truncates_long_ollama_output(self):
+        articles = [_article("A", "contenido")]
+        with patch(
+            "preprocessing.describe.call_ollama",
+            return_value="z" * 200,
+        ):
+            result = describe_cluster(articles, max_chars=40)
+        assert len(result) <= 40
+        assert result.endswith("…")
 
     def test_falls_back_on_ollama_failure(self):
         articles = [
@@ -124,6 +144,7 @@ class TestCallOllama:
                 "prompt",
                 base_url="http://localhost:11434",
                 model="llama3.2",
+                max_chars=100,
             )
 
         assert text == "Descripción generada"
@@ -133,4 +154,6 @@ class TestCallOllama:
         assert kwargs["json"]["model"] == "llama3.2"
         assert kwargs["json"]["stream"] is False
         assert kwargs["json"]["think"] is False
+        assert kwargs["json"]["options"]["num_predict"] == 66
+        assert "máximo 100 caracteres" in kwargs["json"]["messages"][0]["content"]
         assert kwargs["json"]["messages"][1]["content"] == "prompt"

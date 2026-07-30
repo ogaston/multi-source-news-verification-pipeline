@@ -10,7 +10,7 @@ Scrapes Dominican news outlets into **SQLite + Chroma +  LlamaIndex chunked inde
 - Hoy
 - Acento
 
-**Layout:** `common/` (config, db, sources), `ingestion/` (scrape + quality gates), `mcp_app/` (MCP server), `preprocessing/` (data clustering), `admin/` (SQLAdmin UI), `workflows/` (LangGraph multi-agent demos).
+**Layout:** `common/` (config, db, sources), `ingestion/` (scrape + quality gates), `mcp_app/` (MCP server), `preprocessing/` (data clustering), `admin/` (SQLAdmin UI), `agents/` (LangGraph multi-agent demos).
 
 ## Setup
 
@@ -93,13 +93,27 @@ Required after changing `EMBED_MODEL`, `CHUNK_SIZE` / `CHUNK_OVERLAP`, or upgrad
 python -m common.reindex
 ```
 
-## Workflows (LangGraph)
+## Agents (LangGraph)
 
 Two-agent hello world using Groq (`greeter` → `responder`):
 
 ```bash
-pip install -r workflows/requirements.txt
+pip install -r agents/requirements.txt
 # set GROQ_API_KEY in .env
-python -m workflows.hello
-python -m workflows.hello "Dominican news"
+python -m agents.hello
+python -m agents.hello "Dominican news"
+```
+
+Story-audit graph (Groq via `agents.llm.get_llm`).
+One module per agent under `agents/` (`claim_extractor`, `fact_checker`,
+`rhetorical_auditor`, `judger`, `synthesizer`), each with `SYSTEM_PROMPT` and
+`ChatPromptTemplate` injecting state fields (`story`, `claims`, `fact_check`,
+`rhetorical_audit`, `judgment`).
+
+`claim_extractor` → `fact_checker` ↘  
+`rhetorical_auditor` → `judger` → `synthesizer`
+
+```bash
+# set GROQ_API_KEY in .env
+python -m agents.story_audit
 ```
