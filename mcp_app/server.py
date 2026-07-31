@@ -26,16 +26,23 @@ from common.config import (
 from common.sources import NewsSource
 from mcp_app.auth import load_auth_from_env
 from mcp_app.prompt import run_get_last_week
-from mcp_app.resources import get_source_frontpage, list_sources_json
+from mcp_app.resources import (
+    get_source_frontpage,
+    get_verified_resource,
+    list_sources_json,
+)
 from mcp_app.tools import (
     run_get_story,
+    run_get_verified_article,
     run_list_stories,
+    run_list_verified_articles,
     run_search_articles,
     run_search_story,
+    run_search_verified_articles,
 )
 
 MCP_HOST = os.environ.get("MCP_HOST", "127.0.0.1")
-MCP_PORT = int(os.environ.get("MCP_PORT", "8000"))
+MCP_PORT = int(os.environ.get("MCP_PORT", "7000"))
 MCP_TRANSPORT = os.environ.get("MCP_TRANSPORT", "stdio")
 LANDING_HTML_PATH = Path(__file__).resolve().parent / "static" / "index.html"
 
@@ -185,6 +192,105 @@ def get_story(
     return run_get_story(story_id)
 
 
+@mcp.tool(
+    name="list_verified_articles",
+    description=(
+        "List recent synthesized (verified) articles in compact form "
+        "(title, date, status, confidence, cluster_id, slug)."
+    ),
+)
+def list_verified_articles(
+    days_back: Annotated[
+        int,
+        Field(
+            description=(
+                "Only include verified articles from the last N days "
+                "(rolling window by article date)."
+            ),
+            ge=0,
+            le=MAX_DAYS_BACK,
+        ),
+    ] = DEFAULT_LIST_DAYS_BACK,
+    limit: Annotated[
+        int,
+        Field(
+            description="Maximum verified articles to return.",
+            ge=1,
+            le=MAX_QUERY_LIMIT,
+        ),
+    ] = DEFAULT_LIST_STORIES_LIMIT,
+    status: Annotated[
+        str | None,
+        Field(description='Optional status filter (e.g. "draft", "published").'),
+    ] = None,
+) -> str:
+    """Browse recent verified articles without a semantic query."""
+    return run_list_verified_articles(days_back, limit, status)
+
+
+@mcp.tool(
+    name="get_verified_article",
+    description=(
+        "Get one synthesized (verified) article by CLUSTER_ID with full body, "
+        "sources, status, and confidence metadata when available."
+    ),
+)
+def get_verified_article(
+    cluster_id: Annotated[
+        str,
+        Field(
+            description=(
+                "Cluster id from list_verified_articles or search_verified_articles "
+                "(CLUSTER_ID)."
+            ),
+            max_length=MAX_TOPIC_LENGTH,
+        ),
+    ],
+) -> str:
+    """Return one verified article by cluster id."""
+    return run_get_verified_article(cluster_id)
+
+
+@mcp.tool(
+    name="search_verified_articles",
+    description=(
+        "Semantic search over synthesized (verified) article content "
+        "(title + body in verified_index)."
+    ),
+)
+def search_verified_articles(
+    query: Annotated[
+        str,
+        Field(
+            description='Search query or question (e.g. "reforma fiscal").',
+            max_length=MAX_TOPIC_LENGTH,
+        ),
+    ],
+    limit: Annotated[
+        int,
+        Field(
+            description="Maximum verified articles to return.",
+            ge=1,
+            le=MAX_QUERY_LIMIT,
+        ),
+    ] = DEFAULT_QUERY_LIMIT,
+    days_back: Annotated[
+        int,
+        Field(
+            description="Only include articles from the last N days.",
+            ge=0,
+            le=MAX_DAYS_BACK,
+        ),
+    ] = DEFAULT_DAYS_BACK,
+    status: Annotated[
+        str | None,
+        Field(description='Optional status filter (e.g. "draft", "published").'),
+    ] = None,
+) -> str:
+    """Semantic search over verified articles."""
+    return run_search_verified_articles(query, limit, days_back, status)
+
+
 @mcp.resource(
     "news://sources",
     name="sources",
@@ -208,6 +314,21 @@ def source_frontpage(
     ],
 ) -> str:
     return get_source_frontpage(source_id)
+
+
+@mcp.resource(
+    "news://verified/{cluster_id}",
+    name="verified_article",
+    description="One synthesized (verified) article as a text document",
+    mime_type="text/plain",
+)
+def verified_article_resource(
+    cluster_id: Annotated[
+        str,
+        Field(description="Cluster id for the verified article."),
+    ],
+) -> str:
+    return get_verified_resource(cluster_id)
 
 
 @mcp.prompt(

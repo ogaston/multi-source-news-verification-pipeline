@@ -117,17 +117,25 @@ class VerifiedArticleAdmin(ModelView, model=VerifiedArticle):
     name_plural = "Verified Articles"
     icon = "fa-solid fa-check-double"
 
+    can_create = False
+    can_delete = False
+    can_edit = True
+
     column_list = [
         VerifiedArticle.id,
         VerifiedArticle.cluster_id,
+        VerifiedArticle.slug,
         VerifiedArticle.title,
+        VerifiedArticle.category,
         VerifiedArticle.date,
         VerifiedArticle.sources,
         VerifiedArticle.status,
+        VerifiedArticle.confidence,
         VerifiedArticle.created_at,
     ]
     column_searchable_list = [
         VerifiedArticle.title,
+        VerifiedArticle.slug,
         VerifiedArticle.cluster_id,
         VerifiedArticle.sources,
         VerifiedArticle.id,
@@ -136,17 +144,37 @@ class VerifiedArticleAdmin(ModelView, model=VerifiedArticle):
         VerifiedArticle.date,
         VerifiedArticle.status,
         VerifiedArticle.created_at,
+        VerifiedArticle.slug,
+        VerifiedArticle.confidence,
     ]
     column_details_list = [
         VerifiedArticle.id,
         VerifiedArticle.cluster_id,
+        VerifiedArticle.slug,
         VerifiedArticle.title,
         VerifiedArticle.content,
+        VerifiedArticle.category,
         VerifiedArticle.image_url,
         VerifiedArticle.date,
         VerifiedArticle.sources,
         VerifiedArticle.status,
+        VerifiedArticle.confidence,
+        VerifiedArticle.confidence_score,
+        VerifiedArticle.source_scores,
+        VerifiedArticle.audit_json,
         VerifiedArticle.created_at,
+    ]
+    # Editors demote bad articles to draft (pipeline publishes by default).
+    form_columns = [
+        VerifiedArticle.status,
+        VerifiedArticle.title,
+        VerifiedArticle.category,
+        VerifiedArticle.slug,
+        VerifiedArticle.image_url,
+        VerifiedArticle.date,
+        VerifiedArticle.sources,
+        VerifiedArticle.confidence,
+        VerifiedArticle.content,
     ]
     column_formatters = {
         VerifiedArticle.content: lambda m, a: _truncate(m.content),

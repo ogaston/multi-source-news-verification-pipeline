@@ -82,12 +82,16 @@
       <li><code>search_story</code> — search stories and return matching stories with their articles</li>
       <li><code>list_stories</code> — compact browse of recent story clusters (description, sources, headlines)</li>
       <li><code>get_story</code> — full member articles for one story/cluster by <code>STORY_ID</code></li>
+      <li><code>list_verified_articles</code> — recent synthesized articles (status, confidence, title, slug)</li>
+      <li><code>get_verified_article</code> — full verified body + sources + confidence by <code>CLUSTER_ID</code></li>
+      <li><code>search_verified_articles</code> — semantic search over verified title + body</li>
     </ul>
 
     <p><strong style="color: var(--fg);">Resources</strong></p>
     <ul>
       <li><code>news://sources</code> — outlet catalog (JSON)</li>
       <li><code>news://{source_id}/frontpage</code> — last 1 day of articles for one outlet</li>
+      <li><code>news://verified/{cluster_id}</code> — one synthesized (verified) article</li>
     </ul>
 
     <p><strong style="color: var(--fg);">Prompts</strong></p>

@@ -2,70 +2,60 @@
 
 from __future__ import annotations
 
-import sqlite3
 from datetime import datetime, timedelta, timezone
 
 import pytest
+from sqlalchemy import text
 
-import mcp_app.utils as utils
+import common.db as db
 from common.sources import NewsSource
-from mcp_app.resources import get_source_frontpage, list_sources_json, resolve_source_id
+from mcp_app.resources import (
+    get_source_frontpage,
+    get_verified_resource,
+    list_sources_json,
+    resolve_source_id,
+)
+from tests.conftest import insert_raw_articles
 
 
 @pytest.fixture
-def frontpage_db(tmp_path, monkeypatch):
-    db_path = tmp_path / "frontpage_news.db"
-    monkeypatch.setattr(utils, "DB_NAME", str(db_path))
-
+def frontpage_db(sqlalchemy_db):
     now = datetime.now(timezone.utc)
     recent = (now - timedelta(hours=6)).isoformat()
     older = (now - timedelta(days=3)).isoformat()
 
-    with sqlite3.connect(db_path) as conn:
-        conn.execute(
-            """
-            CREATE TABLE raw_articles (
-                id TEXT PRIMARY KEY,
-                source TEXT,
-                title TEXT,
-                date TEXT,
-                content TEXT,
-                url TEXT,
-                processed INTEGER NOT NULL DEFAULT 0
-            )
-            """
-        )
-        conn.executemany(
-            "INSERT INTO raw_articles (id, source, title, date, content, url) VALUES (?, ?, ?, ?, ?, ?)",
-            [
-                (
-                    "acento-recent",
-                    "Acento",
-                    "Recent Acento",
-                    recent,
-                    "Acento body",
-                    "https://example.com/acento-recent",
-                ),
-                (
-                    "acento-old",
-                    "Acento",
-                    "Old Acento",
-                    older,
-                    "Old body",
-                    "https://example.com/acento-old",
-                ),
-                (
-                    "hoy-recent",
-                    "Hoy",
-                    "Recent Hoy",
-                    recent,
-                    "Hoy body",
-                    "https://example.com/hoy-recent",
-                ),
-            ],
-        )
-        conn.commit()
-    return db_path
+    insert_raw_articles(
+        [
+            {
+                "id": "acento-recent",
+                "source": "Acento",
+                "title": "Recent Acento",
+                "date": recent,
+                "content": "Acento body",
+                "url": "https://example.com/acento-recent",
+                "processed": 0,
+            },
+            {
+                "id": "acento-old",
+                "source": "Acento",
+                "title": "Old Acento",
+                "date": older,
+                "content": "Old body",
+                "url": "https://example.com/acento-old",
+                "processed": 0,
+            },
+            {
+                "id": "hoy-recent",
+                "source": "Hoy",
+                "title": "Recent Hoy",
+                "date": recent,
+                "content": "Hoy body",
+                "url": "https://example.com/hoy-recent",
+                "processed": 0,
+            },
+        ]
+    )
+    return sqlalchemy_db
 
 
 class TestListSourcesJson:
@@ -103,3 +93,33 @@ class TestGetSourceFrontpage:
     def test_empty_when_no_recent_articles(self, frontpage_db):
         text = get_source_frontpage("diario_libre")
         assert text == "No articles found for Diario Libre in the last 1 day."
+
+
+class TestGetVerifiedResource:
+    def test_not_found(self, sqlalchemy_db):
+        assert "Verified article not found: 'missing'" in get_verified_resource(
+            "missing"
+        )
+
+    def test_returns_detail(self, sqlalchemy_db, monkeypatch):
+        monkeypatch.setattr(db, "index_verified_article", lambda **_k: None)
+        now = datetime.now(timezone.utc).isoformat()
+        with db.get_engine().begin() as conn:
+            conn.execute(
+                text(
+                    """
+                    INSERT INTO verified_articles (
+                        id, cluster_id, slug, title, content, date, sources,
+                        status, created_at
+                    )
+                    VALUES (
+                        'vr1', 'c-vr', 'slug-vr', 'Titulo VR', 'Cuerpo VR',
+                        :date, 'Hoy', 'draft', :date
+                    )
+                    """
+                ),
+                {"date": now},
+            )
+        text_out = get_verified_resource("c-vr")
+        assert "VERIFIED: Titulo VR" in text_out
+        assert "CONTENT:\nCuerpo VR" in text_out

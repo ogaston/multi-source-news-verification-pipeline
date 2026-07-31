@@ -2,70 +2,53 @@
 
 from __future__ import annotations
 
-import sqlite3
 from datetime import datetime, timedelta, timezone
 
 import pytest
 
-import mcp_app.utils as utils
 from common.sources import NewsSource
 from mcp_app.prompt import LAST_WEEK_DAYS, run_get_last_week
+from tests.conftest import insert_raw_articles
 
 
 @pytest.fixture
-def last_week_db(tmp_path, monkeypatch):
-    db_path = tmp_path / "last_week_news.db"
-    monkeypatch.setattr(utils, "DB_NAME", str(db_path))
-
+def last_week_db(sqlalchemy_db):
     now = datetime.now(timezone.utc)
     within_week = (now - timedelta(days=3)).isoformat()
     outside_week = (now - timedelta(days=10)).isoformat()
 
-    with sqlite3.connect(db_path) as conn:
-        conn.execute(
-            """
-            CREATE TABLE raw_articles (
-                id TEXT PRIMARY KEY,
-                source TEXT,
-                title TEXT,
-                date TEXT,
-                content TEXT,
-                url TEXT,
-                processed INTEGER NOT NULL DEFAULT 0
-            )
-            """
-        )
-        conn.executemany(
-            "INSERT INTO raw_articles (id, source, title, date, content, url) VALUES (?, ?, ?, ?, ?, ?)",
-            [
-                (
-                    "acento-week",
-                    "Acento",
-                    "Acento This Week",
-                    within_week,
-                    "Week body",
-                    "https://example.com/acento-week",
-                ),
-                (
-                    "acento-old",
-                    "Acento",
-                    "Acento Old",
-                    outside_week,
-                    "Old body",
-                    "https://example.com/acento-old",
-                ),
-                (
-                    "hoy-week",
-                    "Hoy",
-                    "Hoy This Week",
-                    within_week,
-                    "Hoy body",
-                    "https://example.com/hoy-week",
-                ),
-            ],
-        )
-        conn.commit()
-    return db_path
+    insert_raw_articles(
+        [
+            {
+                "id": "acento-week",
+                "source": "Acento",
+                "title": "Acento This Week",
+                "date": within_week,
+                "content": "Week body",
+                "url": "https://example.com/acento-week",
+                "processed": 0,
+            },
+            {
+                "id": "acento-old",
+                "source": "Acento",
+                "title": "Acento Old",
+                "date": outside_week,
+                "content": "Old body",
+                "url": "https://example.com/acento-old",
+                "processed": 0,
+            },
+            {
+                "id": "hoy-week",
+                "source": "Hoy",
+                "title": "Hoy This Week",
+                "date": within_week,
+                "content": "Hoy body",
+                "url": "https://example.com/hoy-week",
+                "processed": 0,
+            },
+        ]
+    )
+    return sqlalchemy_db
 
 
 class TestRunGetLastWeek:

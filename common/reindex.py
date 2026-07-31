@@ -1,5 +1,5 @@
 """
-Rebuild Chroma collections from SQLite.
+Rebuild Chroma collections from the database.
 
 Required after changing EMBED_MODEL, CHUNK_SIZE/OVERLAP, or collection version:
 
@@ -8,9 +8,15 @@ Required after changing EMBED_MODEL, CHUNK_SIZE/OVERLAP, or collection version:
 
 from __future__ import annotations
 
-from common.config import CHROMA_COLLECTION, EMBED_MODEL, STORY_CHROMA_COLLECTION
+from common.config import (
+    CHROMA_COLLECTION,
+    EMBED_MODEL,
+    STORY_CHROMA_COLLECTION,
+    VERIFIED_CHROMA_COLLECTION,
+)
 from common.db import (
     fetch_all_news,
+    fetch_all_verified_articles,
     fetch_cluster_articles,
     fetch_clusters_with_descriptions,
     fetch_clusters_without_descriptions,
@@ -20,8 +26,10 @@ from common.db import (
 from common.indexing import (
     delete_collection,
     delete_story_index,
+    delete_verified_index,
     index_article,
     index_story,
+    index_verified_article,
     reset_index_cache,
 )
 from preprocessing.describe import describe_cluster
@@ -45,7 +53,7 @@ def backfill_story_descriptions() -> int:
 
 
 def reindex_stories() -> int:
-    """Rebuild story_index from SQLite cluster descriptions."""
+    """Rebuild story_index from cluster descriptions."""
     if delete_story_index():
         print(f"Deleted existing collection: {STORY_CHROMA_COLLECTION}")
     else:
@@ -54,7 +62,7 @@ def reindex_stories() -> int:
 
     clusters = fetch_clusters_with_descriptions()
     if not clusters:
-        print("No story descriptions in SQLite.")
+        print("No story descriptions in database.")
         return 0
 
     for i, row in enumerate(clusters, start=1):
@@ -64,6 +72,34 @@ def reindex_stories() -> int:
 
     print(f"Story reindex complete: {len(clusters)} stories")
     return len(clusters)
+
+
+def reindex_verified() -> int:
+    """Rebuild verified_index from verified_articles."""
+    if delete_verified_index():
+        print(f"Deleted existing collection: {VERIFIED_CHROMA_COLLECTION}")
+    else:
+        print(f"No existing collection to delete: {VERIFIED_CHROMA_COLLECTION}")
+    reset_index_cache()
+
+    articles = fetch_all_verified_articles()
+    if not articles:
+        print("No verified articles in database.")
+        return 0
+
+    for i, row in enumerate(articles, start=1):
+        index_verified_article(
+            cluster_id=row["cluster_id"],
+            title=row.get("title") or "",
+            content=row.get("content") or "",
+            date=row.get("date"),
+            status=row.get("status") or "draft",
+        )
+        if i % 10 == 0 or i == len(articles):
+            print(f"Indexed verified articles: {i}/{len(articles)}")
+
+    print(f"Verified reindex complete: {len(articles)} articles")
+    return len(articles)
 
 
 def reindex() -> int:
@@ -89,13 +125,14 @@ def reindex() -> int:
                     f"({total_chunks} chunks)"
                 )
     else:
-        print("No articles in SQLite; empty collection will be created on first index.")
+        print("No articles in database; empty collection will be created on first index.")
 
     backfilled = backfill_story_descriptions()
     if backfilled:
         print(f"Backfilled {backfilled} missing story descriptions")
 
     reindex_stories()
+    reindex_verified()
 
     print(
         f"Reindex complete with model {EMBED_MODEL}: "

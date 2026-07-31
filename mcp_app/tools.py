@@ -19,16 +19,22 @@ from common.db import (
     fetch_cluster,
     fetch_cluster_articles,
     fetch_recent_clusters,
+    fetch_verified_article,
+    fetch_verified_articles,
 )
-from common.indexing import retrieve_chunks, retrieve_stories
+from common.indexing import retrieve_chunks, retrieve_stories, retrieve_verified
 from common.sources import NewsSource
 from mcp_app.utils import (
     filter_ranked_chunks,
     filter_ranked_stories,
+    filter_ranked_verified,
     format_rag_context,
     format_story_context,
     format_story_detail,
     format_story_list,
+    format_verified_detail,
+    format_verified_list,
+    format_verified_search,
 )
 
 
@@ -143,3 +149,78 @@ def run_get_story(story_id: str) -> str:
         cluster.get("created_at") or "",
         articles,
     )
+
+
+def run_list_verified_articles(
+    days_back: int = DEFAULT_LIST_DAYS_BACK,
+    limit: int = DEFAULT_LIST_STORIES_LIMIT,
+    status: str | None = None,
+) -> str:
+    limit = min(MAX_QUERY_LIMIT, max(1, limit))
+    days_back = min(MAX_DAYS_BACK, max(0, days_back))
+    date_threshold = datetime.now(timezone.utc) - timedelta(days=days_back)
+    status = (status or "").strip() or None
+
+    articles = fetch_verified_articles(
+        date_threshold.isoformat(),
+        status=status,
+        limit=limit,
+    )
+    if not articles:
+        day_label = "day" if days_back == 1 else "days"
+        scope = f"last {days_back} {day_label}"
+        if status:
+            scope += f", status={status}"
+        return f"No verified articles found ({scope})."
+
+    return format_verified_list(articles, days_back=days_back)
+
+
+def run_get_verified_article(cluster_id: str) -> str:
+    cluster_id = (cluster_id or "").strip()
+    if not cluster_id:
+        return "Verified article not found: missing cluster_id."
+
+    article = fetch_verified_article(cluster_id)
+    if article is None:
+        return f"Verified article not found: '{cluster_id}'."
+
+    return format_verified_detail(article)
+
+
+def run_search_verified_articles(
+    query: str,
+    limit: int = DEFAULT_QUERY_LIMIT,
+    days_back: int = DEFAULT_DAYS_BACK,
+    status: str | None = None,
+) -> str:
+    query = (query or "")[:MAX_TOPIC_LENGTH]
+    limit = min(MAX_QUERY_LIMIT, max(1, limit))
+    days_back = min(MAX_DAYS_BACK, max(0, days_back))
+    date_threshold = datetime.now(timezone.utc) - timedelta(days=days_back)
+    status = (status or "").strip() or None
+
+    n_results = max(QUERY_CANDIDATE_MIN, limit * QUERY_CANDIDATE_MULTIPLIER)
+    hits = retrieve_verified(query, n_results=n_results)
+
+    if not hits:
+        return f"No semantically relevant verified articles found for query: '{query}'."
+
+    filtered = filter_ranked_verified(
+        hits,
+        fetch_article=fetch_verified_article,
+        date_threshold=date_threshold,
+        status=status,
+        limit=limit,
+    )
+
+    if not filtered:
+        scope = f"last {days_back} days"
+        if status:
+            scope += f", status={status}"
+        return (
+            f"No semantically relevant verified articles found for query: "
+            f"'{query}' ({scope})."
+        )
+
+    return format_verified_search(query, filtered)

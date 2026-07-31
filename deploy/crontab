@@ -1,6 +1,5 @@
-# Ingest four times daily (America/Santo_Domingo; set TZ on the container).
-0 6,12,18,22 * * * python -m ingestion.ingestor
-# Topic clustering over unprocessed raw_articles every 15 minutes.
-*/15 * * * * python -m preprocessing.runner
-# Story-audit unprocessed clusters every 15 minutes (writes verified_articles).
-*/15 * * * * python -m agents.story_audit
+# Fast-test cadence (America/Santo_Domingo; set TZ on the container).
+# Production: ingest 0 6,12,18,22 * * * | preprocess */15 | story_audit */15
+# */15 * * * * python -m ingestion.ingestor
+# */20 * * * * python -m preprocessing.runner
+# */25 * * * * python -m agents.story_audit

@@ -2,22 +2,13 @@
 
 from __future__ import annotations
 
-import sqlite3
 from datetime import datetime, timedelta, timezone
+from typing import Any
 
-from common.config import DB_NAME
-from common.indexing import RetrievedChunk, RetrievedStory
+from common.db import query_db
+from common.indexing import RetrievedChunk, RetrievedStory, RetrievedVerified
 from common.sources import NewsSource
 from ingestion.pipeline import normalize_date
-
-
-def query_db(sql: str, params: tuple) -> list[sqlite3.Row]:
-    # Read-only URI so the MCP query path cannot write even if a bug appears later.
-    with sqlite3.connect(f"file:{DB_NAME}?mode=ro", uri=True) as conn:
-        conn.row_factory = sqlite3.Row
-        cursor = conn.cursor()
-        cursor.execute(sql, params)
-        return cursor.fetchall()
 
 
 def parse_article_date(value: str | None) -> datetime | None:
@@ -180,7 +171,7 @@ def format_story_list(
 
 def load_source_articles(
     source: NewsSource, *, days_back: int = 1
-) -> list[sqlite3.Row]:
+) -> list[dict[str, Any]]:
     threshold = datetime.now(timezone.utc) - timedelta(days=max(0, days_back))
     return query_db(
         """
@@ -194,7 +185,7 @@ def load_source_articles(
 
 
 def format_frontpage(
-    source: NewsSource, rows: list[sqlite3.Row], *, days_back: int = 1
+    source: NewsSource, rows: list[dict[str, Any]], *, days_back: int = 1
 ) -> str:
     day_label = "day" if days_back == 1 else "days"
     header = f"--- FRONTPAGE: {source.value} (last {days_back} {day_label}) ---\n\n"
@@ -207,3 +198,78 @@ def format_frontpage(
         body += f"CONTENT:\n{row['content']}\n"
         body += "-" * 40 + "\n\n"
     return header + body
+
+
+def _append_confidence_fields(block: str, article: dict[str, Any]) -> str:
+    confidence = article.get("confidence")
+    if confidence is not None and str(confidence).strip():
+        block += f"CONFIDENCE: {confidence}\n"
+    score = article.get("confidence_score")
+    if score is not None:
+        block += f"CONFIDENCE_SCORE: {score}\n"
+    return block
+
+
+def format_verified_detail(article: dict[str, Any]) -> str:
+    """Full verified article: metadata + body."""
+    block = f"--- VERIFIED: {article.get('title') or ''} ---\n"
+    block += f"CLUSTER_ID: {article.get('cluster_id') or ''}\n"
+    block += f"SLUG: {article.get('slug') or ''}\n"
+    block += f"DATE: {article.get('date') or ''}\n"
+    block += f"STATUS: {article.get('status') or ''}\n"
+    block = _append_confidence_fields(block, article)
+    block += f"SOURCES: {article.get('sources') or ''}\n"
+    block += f"CONTENT:\n{article.get('content') or ''}\n"
+    block += "-" * 40 + "\n\n"
+    return block
+
+
+def format_verified_list(
+    articles: list[dict[str, Any]],
+    *,
+    days_back: int,
+) -> str:
+    """Compact verified browse: title, date, status, confidence, ids."""
+    day_label = "day" if days_back == 1 else "days"
+    context = f"--- VERIFIED LIST (last {days_back} {day_label}) ---\n\n"
+    for article in articles:
+        context += f"--- VERIFIED: {article.get('title') or ''} ---\n"
+        context += f"CLUSTER_ID: {article.get('cluster_id') or ''}\n"
+        context += f"SLUG: {article.get('slug') or ''}\n"
+        context += f"DATE: {article.get('date') or ''}\n"
+        context += f"STATUS: {article.get('status') or ''}\n"
+        context = _append_confidence_fields(context, article)
+        context += "\n" + "-" * 40 + "\n\n"
+    return context
+
+
+def filter_ranked_verified(
+    hits: list[RetrievedVerified],
+    *,
+    fetch_article,
+    date_threshold: datetime,
+    status: str | None,
+    limit: int,
+) -> list[dict[str, Any]]:
+    """Hydrate Chroma hits from DB and apply date/status filters."""
+    filtered: list[dict[str, Any]] = []
+    for hit in hits:
+        article = fetch_article(hit.cluster_id)
+        if article is None:
+            continue
+        if status and (article.get("status") or "") != status:
+            continue
+        article_dt = parse_article_date(article.get("date") or article.get("created_at"))
+        if article_dt is None or article_dt < date_threshold:
+            continue
+        filtered.append(article)
+        if len(filtered) >= limit:
+            break
+    return filtered
+
+
+def format_verified_search(query: str, articles: list[dict[str, Any]]) -> str:
+    context = f"--- VERIFIED SEARCH FOR QUERY: '{query}' ---\n\n"
+    for article in articles:
+        context += format_verified_detail(article)
+    return context

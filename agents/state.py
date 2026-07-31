@@ -14,4 +14,5 @@ class StoryAuditState(TypedDict, total=False):
     fact_check: str
     rhetorical_audit: str
     judgment: str
+    analysis: str
     article: str

@@ -2,6 +2,11 @@
 
 import os
 
+DATABASE_URL = os.environ.get(
+    "DATABASE_URL",
+    "postgresql+psycopg://news:news@localhost:5432/news",
+)
+# Source SQLite path for the one-shot ops migration script only.
 DB_NAME = os.environ.get("DB_NAME", "dominican_news_repository.db")
 CHROMA_PATH = os.environ.get("CHROMA_PATH", "./chroma_db")
 # v2 = chunked LlamaIndex nodes (not whole-article vectors).
@@ -31,7 +36,13 @@ PREPROCESS_BATCH_SIZE = int(os.environ.get("PREPROCESS_BATCH_SIZE", "650"))
 # Cosine distance threshold for AHC (≈ 1 - similarity); 0.25 ≈ similarity 0.75.
 CLUSTER_DISTANCE_THRESHOLD = float(os.environ.get("CLUSTER_DISTANCE_THRESHOLD", "0.30"))
 
-GROQ_API_KEY = os.environ.get("GROQ_API_KEY", "")
-GROQ_MODEL = os.environ.get("GROQ_MODEL", "openai/gpt-oss-20b")
+DEEPSEEK_API_KEY = os.environ.get("DEEPSEEK_API_KEY", "")
+DEEPSEEK_MODEL = os.environ.get("DEEPSEEK_MODEL", "deepseek-chat")
+DEEPSEEK_BASE_URL = os.environ.get(
+    "DEEPSEEK_BASE_URL", "https://api.deepseek.com"
+).rstrip("/")
 CLUSTER_DESC_MAX_CHARS = int(os.environ.get("CLUSTER_DESC_MAX_CHARS", "800"))
 STORY_CHROMA_COLLECTION = os.environ.get("STORY_CHROMA_COLLECTION", "story_index")
+VERIFIED_CHROMA_COLLECTION = os.environ.get(
+    "VERIFIED_CHROMA_COLLECTION", "verified_index"
+)

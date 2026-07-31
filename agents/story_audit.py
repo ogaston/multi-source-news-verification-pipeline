@@ -20,6 +20,8 @@ from pathlib import Path
 
 from langgraph.graph import END, START, StateGraph
 
+from agents.analyzer import parse_analysis
+from agents.analyzer import run as analyzer
 from agents.claim_extractor import run as claim_extractor
 from agents.fact_checker import run as fact_checker
 from agents.judger import run as judger
@@ -49,6 +51,7 @@ REPORT_SECTIONS: tuple[tuple[str, str], ...] = (
     ("rhetorical_auditor", "rhetorical_audit"),
     ("fact_checker", "fact_check"),
     ("judger", "judgment"),
+    ("analyzer", "analysis"),
     ("synthesizer", "article"),
 )
 
@@ -69,6 +72,7 @@ def build_graph():
     graph.add_node("rhetorical_auditor", rhetorical_auditor)
     # defer so judger waits for both branches (fact_checker + rhetorical_auditor)
     graph.add_node("judger", judger, defer=True)
+    graph.add_node("analyzer", analyzer)
     graph.add_node("synthesizer", synthesizer)
 
     graph.add_edge(START, "claim_extractor")
@@ -76,7 +80,8 @@ def build_graph():
     graph.add_edge("claim_extractor", "fact_checker")
     graph.add_edge("fact_checker", "judger")
     graph.add_edge("rhetorical_auditor", "judger")
-    graph.add_edge("judger", "synthesizer")
+    graph.add_edge("judger", "analyzer")
+    graph.add_edge("analyzer", "synthesizer")
     graph.add_edge("synthesizer", END)
     return graph.compile()
 
@@ -178,6 +183,14 @@ def parse_sources_from_text(story: str) -> str | None:
     return match.group(1).strip() or None
 
 
+def article_category(articles: list[dict]) -> str | None:
+    for article in articles:
+        category = (article.get("category") or "").strip()
+        if category:
+            return category
+    return None
+
+
 def persist_verified(
     *,
     cluster_id: str,
@@ -188,14 +201,21 @@ def persist_verified(
     title, body = split_article(result.get("article") or "")
     if not body:
         body = title
+    members = articles or []
+    analysis = parse_analysis(result.get("analysis"))
     article_id = insert_verified_article(
         cluster_id=cluster_id,
         title=title,
         content=body,
         image_url=None,
-        date=article_date(articles or []),
-        sources=sources if sources is not None else article_sources(articles or []),
-        status="draft",
+        date=article_date(members),
+        sources=sources if sources is not None else article_sources(members),
+        category=article_category(members),
+        status="published",
+        confidence=analysis["confidence"],
+        confidence_score=analysis["confidence_score"],
+        source_scores=analysis["source_scores"],
+        audit_json=analysis["audit_json"],
     )
     mark_cluster_processed(cluster_id)
     return article_id

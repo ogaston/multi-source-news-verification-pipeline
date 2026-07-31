@@ -7,7 +7,7 @@ FROM python:3.12-slim-bookworm
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     PIP_DISABLE_PIP_VERSION_CHECK=1 \
-    DB_NAME=/data/dominican_news_repository.db \
+    DATABASE_URL=postgresql+psycopg://news:news@postgres:5432/news \
     CHROMA_PATH=/data/chroma_db \
     DATA_DIR=/data/debug_json \
     HF_HOME=/opt/hf_cache \
@@ -45,8 +45,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 ARG TARGETARCH=amd64
 ARG SUPERCRONIC_VERSION=v0.2.36
 RUN curl -fsSL \
-      "https://github.com/aptible/supercronic/releases/download/${SUPERCRONIC_VERSION}/supercronic-linux-${TARGETARCH}" \
-      -o /usr/local/bin/supercronic \
+    "https://github.com/aptible/supercronic/releases/download/${SUPERCRONIC_VERSION}/supercronic-linux-${TARGETARCH}" \
+    -o /usr/local/bin/supercronic \
     && chmod +x /usr/local/bin/supercronic
 
 WORKDIR /app
@@ -55,10 +55,10 @@ COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt \
     && python -m playwright install --with-deps chromium
 
-COPY . .
-
 RUN mkdir -p /data /opt/hf_cache \
     && python -c "from sentence_transformers import SentenceTransformer; SentenceTransformer('paraphrase-multilingual-MiniLM-L12-v2')"
+
+COPY . .
 
 COPY scripts/docker-entrypoint.sh /docker-entrypoint.sh
 RUN chmod +x /docker-entrypoint.sh

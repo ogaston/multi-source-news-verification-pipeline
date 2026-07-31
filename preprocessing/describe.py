@@ -1,4 +1,4 @@
-"""Generate Spanish cluster descriptions via Groq."""
+"""Generate Spanish cluster descriptions via DeepSeek."""
 
 from __future__ import annotations
 
@@ -10,16 +10,17 @@ import httpx
 
 from common.config import (
     CLUSTER_DESC_MAX_CHARS,
-    GROQ_API_KEY,
-    GROQ_MODEL,
+    DEEPSEEK_API_KEY,
+    DEEPSEEK_BASE_URL,
+    DEEPSEEK_MODEL,
 )
 
 logger = logging.getLogger(__name__)
 
-GROQ_CHAT_URL = "https://api.groq.com/openai/v1/chat/completions"
-# Room for gpt-oss reasoning + a short Spanish blurb.
-GROQ_DESC_MAX_TOKENS = 1024
-GROQ_MAX_RETRIES = 3
+DEEPSEEK_CHAT_URL = f"{DEEPSEEK_BASE_URL}/chat/completions"
+# Short Spanish blurb; thinking is off so this need not cover CoT tokens.
+DEEPSEEK_DESC_MAX_TOKENS = 1024
+DEEPSEEK_MAX_RETRIES = 3
 _RETRY_WAIT_RE = re.compile(r"try again in ([\d.]+)\s*s", re.IGNORECASE)
 
 
@@ -68,7 +69,7 @@ def fallback_story_description(
     *,
     max_chars: int = CLUSTER_DESC_MAX_CHARS,
 ) -> str:
-    """Deterministic summary when Groq is unavailable or returns empty."""
+    """Deterministic summary when DeepSeek is unavailable or returns empty."""
     if not articles:
         return "Historia sin artículos."
 
@@ -92,23 +93,25 @@ def _retry_wait_seconds(response: httpx.Response, attempt: int) -> float:
     return 2.0 * (2 ** (attempt - 1))
 
 
-def call_groq(
+def call_deepseek(
     user_prompt: str,
     *,
     api_key: str | None = None,
-    model: str = GROQ_MODEL,
+    model: str = DEEPSEEK_MODEL,
     max_chars: int = CLUSTER_DESC_MAX_CHARS,
     timeout: float = 120.0,
 ) -> str:
-    """Call Groq chat completions and return the assistant message content."""
-    key = api_key if api_key is not None else GROQ_API_KEY
+    """Call DeepSeek chat completions and return the assistant message content."""
+    key = api_key if api_key is not None else DEEPSEEK_API_KEY
     if not key:
-        raise RuntimeError("GROQ_API_KEY is not set")
+        raise RuntimeError("DEEPSEEK_API_KEY is not set")
 
     payload = {
         "model": model,
         "temperature": 0,
-        "max_tokens": GROQ_DESC_MAX_TOKENS,
+        "max_tokens": DEEPSEEK_DESC_MAX_TOKENS,
+        "reasoning_effort": "low",
+        "thinking": {"type": "disabled"},
         "messages": [
             {"role": "system", "content": _system_prompt(max_chars)},
             {"role": "user", "content": user_prompt},
@@ -121,18 +124,18 @@ def call_groq(
 
     last_error: Exception | None = None
     with httpx.Client(timeout=timeout) as client:
-        for attempt in range(1, GROQ_MAX_RETRIES + 1):
+        for attempt in range(1, DEEPSEEK_MAX_RETRIES + 1):
             try:
                 response = client.post(
-                    GROQ_CHAT_URL, json=payload, headers=headers
+                    DEEPSEEK_CHAT_URL, json=payload, headers=headers
                 )
-                if response.status_code == 429 and attempt < GROQ_MAX_RETRIES:
+                if response.status_code == 429 and attempt < DEEPSEEK_MAX_RETRIES:
                     wait = _retry_wait_seconds(response, attempt)
                     logger.warning(
-                        "Groq rate limit; retrying in %.1fs (attempt %s/%s)",
+                        "DeepSeek rate limit; retrying in %.1fs (attempt %s/%s)",
                         wait,
                         attempt,
-                        GROQ_MAX_RETRIES,
+                        DEEPSEEK_MAX_RETRIES,
                     )
                     time.sleep(wait)
                     continue
@@ -149,7 +152,7 @@ def call_groq(
                 if (
                     exc.response is not None
                     and exc.response.status_code == 429
-                    and attempt < GROQ_MAX_RETRIES
+                    and attempt < DEEPSEEK_MAX_RETRIES
                 ):
                     wait = _retry_wait_seconds(exc.response, attempt)
                     time.sleep(wait)
@@ -168,13 +171,13 @@ def describe_cluster(
     articles: list[dict],
     *,
     api_key: str | None = None,
-    model: str = GROQ_MODEL,
+    model: str = DEEPSEEK_MODEL,
     max_chars: int = CLUSTER_DESC_MAX_CHARS,
 ) -> str:
     """
     Generate a Spanish description for a cluster/story.
 
-    Always returns a non-empty string (Groq result or fallback),
+    Always returns a non-empty string (DeepSeek result or fallback),
     truncated to at most ``max_chars`` characters.
     """
     if not articles:
@@ -182,15 +185,15 @@ def describe_cluster(
 
     prompt = build_cluster_prompt(articles, max_chars=max_chars)
     try:
-        description = call_groq(
+        description = call_deepseek(
             prompt, api_key=api_key, model=model, max_chars=max_chars
         )
     except Exception as exc:
-        logger.warning("Groq cluster description failed: %s", exc)
+        logger.warning("DeepSeek cluster description failed: %s", exc)
         return fallback_story_description(articles, max_chars=max_chars)
 
     description = (description or "").strip()
     if description:
         return _truncate(description, max_chars)
-    logger.warning("Groq returned empty content; using fallback description")
+    logger.warning("DeepSeek returned empty content; using fallback description")
     return fallback_story_description(articles, max_chars=max_chars)

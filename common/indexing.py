@@ -18,6 +18,7 @@ from common.config import (
     CHUNK_SIZE,
     EMBED_MODEL,
     STORY_CHROMA_COLLECTION,
+    VERIFIED_CHROMA_COLLECTION,
 )
 
 _embed_model: HuggingFaceEmbedding | None = None
@@ -25,6 +26,8 @@ _vector_store: ChromaVectorStore | None = None
 _index: VectorStoreIndex | None = None
 _story_vector_store: ChromaVectorStore | None = None
 _story_index: VectorStoreIndex | None = None
+_verified_vector_store: ChromaVectorStore | None = None
+_verified_index: VectorStoreIndex | None = None
 _splitter: SentenceSplitter | None = None
 
 
@@ -46,6 +49,15 @@ class RetrievedStory:
     description: str
     score: float
     created_at: str
+
+
+@dataclass(frozen=True)
+class RetrievedVerified:
+    cluster_id: str
+    title: str
+    score: float
+    date: str
+    status: str
 
 
 def _get_embed_model() -> HuggingFaceEmbedding:
@@ -82,6 +94,10 @@ def _get_chroma_collection():
 
 def _get_story_chroma_collection():
     return _chroma_client().get_or_create_collection(name=STORY_CHROMA_COLLECTION)
+
+
+def _get_verified_chroma_collection():
+    return _chroma_client().get_or_create_collection(name=VERIFIED_CHROMA_COLLECTION)
 
 
 def get_vector_store() -> ChromaVectorStore:
@@ -128,13 +144,39 @@ def get_story_index() -> VectorStoreIndex:
     return _story_index
 
 
+def get_verified_vector_store() -> ChromaVectorStore:
+    global _verified_vector_store
+    if _verified_vector_store is None:
+        _verified_vector_store = ChromaVectorStore(
+            chroma_collection=_get_verified_chroma_collection()
+        )
+    return _verified_vector_store
+
+
+def get_verified_index() -> VectorStoreIndex:
+    global _verified_index
+    if _verified_index is None:
+        storage_context = StorageContext.from_defaults(
+            vector_store=get_verified_vector_store()
+        )
+        _verified_index = VectorStoreIndex.from_vector_store(
+            get_verified_vector_store(),
+            storage_context=storage_context,
+            embed_model=_get_embed_model(),
+        )
+    return _verified_index
+
+
 def reset_index_cache() -> None:
     """Clear cached store/index (e.g. after deleting the collection)."""
     global _vector_store, _index, _story_vector_store, _story_index
+    global _verified_vector_store, _verified_index
     _vector_store = None
     _index = None
     _story_vector_store = None
     _story_index = None
+    _verified_vector_store = None
+    _verified_index = None
 
 
 def delete_collection() -> bool:
@@ -154,6 +196,18 @@ def delete_story_index() -> bool:
     client = _chroma_client()
     try:
         client.delete_collection(STORY_CHROMA_COLLECTION)
+        reset_index_cache()
+        return True
+    except Exception:
+        reset_index_cache()
+        return False
+
+
+def delete_verified_index() -> bool:
+    """Delete the verified Chroma collection if it exists. Returns True if deleted."""
+    client = _chroma_client()
+    try:
+        client.delete_collection(VERIFIED_CHROMA_COLLECTION)
         reset_index_cache()
         return True
     except Exception:
@@ -296,3 +350,64 @@ def retrieve_stories(query: str, n_results: int) -> list[RetrievedStory]:
             )
         )
     return stories
+
+
+def index_verified_article(
+    *,
+    cluster_id: str,
+    title: str,
+    content: str,
+    date: str | None = None,
+    status: str = "draft",
+) -> None:
+    """Upsert one vector document per verified article (title + body)."""
+    title = (title or "").strip()
+    content = (content or "").strip()
+    text = f"{title}\n\n{content}".strip() if title else content
+    if not text:
+        return
+
+    collection = _get_verified_chroma_collection()
+    try:
+        collection.delete(ids=[cluster_id])
+    except Exception:
+        pass
+
+    from llama_index.core.schema import TextNode
+
+    node = TextNode(
+        text=text,
+        id_=cluster_id,
+        metadata={
+            "cluster_id": cluster_id,
+            "title": title,
+            "date": date or "",
+            "status": status or "draft",
+        },
+    )
+    get_verified_index().insert_nodes([node])
+
+
+def retrieve_verified(query: str, n_results: int) -> list[RetrievedVerified]:
+    """Semantic retrieve of verified articles (ranked)."""
+    if n_results < 1:
+        return []
+    retriever = get_verified_index().as_retriever(similarity_top_k=n_results)
+    results = retriever.retrieve(query)
+    articles: list[RetrievedVerified] = []
+    for node_with_score in results:
+        node = node_with_score.node
+        meta = node.metadata or {}
+        cluster_id = str(meta.get("cluster_id") or node.node_id or "")
+        if not cluster_id:
+            continue
+        articles.append(
+            RetrievedVerified(
+                cluster_id=cluster_id,
+                title=str(meta.get("title") or ""),
+                score=float(node_with_score.score or 0.0),
+                date=str(meta.get("date") or ""),
+                status=str(meta.get("status") or ""),
+            )
+        )
+    return articles

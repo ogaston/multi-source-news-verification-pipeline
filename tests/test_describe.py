@@ -1,4 +1,4 @@
-"""Unit tests for cluster description prompts / Groq client (mocked)."""
+"""Unit tests for cluster description prompts / DeepSeek client (mocked)."""
 
 from __future__ import annotations
 
@@ -7,9 +7,9 @@ from unittest.mock import MagicMock, patch
 import httpx
 
 from preprocessing.describe import (
-    GROQ_CHAT_URL,
+    DEEPSEEK_CHAT_URL,
     build_cluster_prompt,
-    call_groq,
+    call_deepseek,
     describe_cluster,
     fallback_story_description,
 )
@@ -77,10 +77,10 @@ class TestFallbackStoryDescription:
 
 
 class TestDescribeCluster:
-    def test_singleton_uses_groq(self):
+    def test_singleton_uses_deepseek(self):
         articles = [_article("Solo", "texto")]
         with patch(
-            "preprocessing.describe.call_groq",
+            "preprocessing.describe.call_deepseek",
             return_value="Resumen singleton.",
         ) as mock_call:
             result = describe_cluster(articles)
@@ -91,53 +91,53 @@ class TestDescribeCluster:
     def test_empty_uses_fallback(self):
         assert describe_cluster([]) == "Historia sin artículos."
 
-    def test_returns_groq_text(self):
+    def test_returns_deepseek_text(self):
         articles = [
             _article("A", "contenido a"),
             _article("B", "contenido b"),
         ]
         with patch(
-            "preprocessing.describe.call_groq",
+            "preprocessing.describe.call_deepseek",
             return_value="  Resumen del cluster.  ",
         ) as mock_call:
             result = describe_cluster(articles)
         assert result == "Resumen del cluster."
         mock_call.assert_called_once()
 
-    def test_truncates_long_groq_output(self):
+    def test_truncates_long_deepseek_output(self):
         articles = [_article("A", "contenido")]
         with patch(
-            "preprocessing.describe.call_groq",
+            "preprocessing.describe.call_deepseek",
             return_value="z" * 200,
         ):
             result = describe_cluster(articles, max_chars=40)
         assert len(result) <= 40
         assert result.endswith("…")
 
-    def test_falls_back_on_groq_failure(self):
+    def test_falls_back_on_deepseek_failure(self):
         articles = [
             _article("A", "contenido a"),
             _article("B", "contenido b"),
         ]
         with patch(
-            "preprocessing.describe.call_groq",
+            "preprocessing.describe.call_deepseek",
             side_effect=httpx.ConnectError("refused"),
         ):
             result = describe_cluster(articles)
         assert "A" in result
         assert "2 artículos" in result
 
-    def test_falls_back_on_empty_groq_content(self):
+    def test_falls_back_on_empty_deepseek_content(self):
         articles = [_article("A", "contenido a")]
         with patch(
-            "preprocessing.describe.call_groq",
+            "preprocessing.describe.call_deepseek",
             return_value="",
         ):
             result = describe_cluster(articles)
         assert "A" in result
 
 
-class TestCallGroq:
+class TestCallDeepseek:
     def test_posts_chat_payload(self):
         mock_response = MagicMock()
         mock_response.status_code = 200
@@ -151,28 +151,30 @@ class TestCallGroq:
         mock_client.post.return_value = mock_response
 
         with patch("preprocessing.describe.httpx.Client", return_value=mock_client):
-            text = call_groq(
+            text = call_deepseek(
                 "prompt",
-                api_key="gsk_test",
-                model="openai/gpt-oss-20b",
+                api_key="sk_test",
+                model="deepseek-chat",
                 max_chars=100,
             )
 
         assert text == "Descripción generada"
         mock_client.post.assert_called_once()
         args, kwargs = mock_client.post.call_args
-        assert args[0] == GROQ_CHAT_URL
-        assert kwargs["headers"]["Authorization"] == "Bearer gsk_test"
-        assert kwargs["json"]["model"] == "openai/gpt-oss-20b"
+        assert args[0] == DEEPSEEK_CHAT_URL
+        assert kwargs["headers"]["Authorization"] == "Bearer sk_test"
+        assert kwargs["json"]["model"] == "deepseek-chat"
         assert kwargs["json"]["temperature"] == 0
         assert kwargs["json"]["max_tokens"] == 1024
+        assert kwargs["json"]["reasoning_effort"] == "low"
+        assert kwargs["json"]["thinking"] == {"type": "disabled"}
         assert "máximo 100 caracteres" in kwargs["json"]["messages"][0]["content"]
         assert kwargs["json"]["messages"][1]["content"] == "prompt"
 
     def test_requires_api_key(self):
-        with patch("preprocessing.describe.GROQ_API_KEY", ""):
+        with patch("preprocessing.describe.DEEPSEEK_API_KEY", ""):
             try:
-                call_groq("prompt", api_key="")
+                call_deepseek("prompt", api_key="")
                 raise AssertionError("expected RuntimeError")
             except RuntimeError as exc:
-                assert "GROQ_API_KEY" in str(exc)
+                assert "DEEPSEEK_API_KEY" in str(exc)

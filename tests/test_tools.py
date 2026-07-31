@@ -2,15 +2,16 @@
 
 from __future__ import annotations
 
-import sqlite3
 from datetime import datetime, timedelta, timezone
 
 import pytest
+from sqlalchemy import text
 
 import common.db as db
 import mcp_app.tools as tools
 from common.config import MAX_DAYS_BACK, MAX_QUERY_LIMIT, MAX_TOPIC_LENGTH
 from common.indexing import RetrievedChunk, RetrievedStory
+from tests.conftest import insert_raw_articles
 
 
 def test_search_articles_clamps_limit_days_back_and_query(monkeypatch):
@@ -112,86 +113,89 @@ def test_search_story_empty_after_filter(monkeypatch):
 
 
 @pytest.fixture
-def stories_db(tmp_path, monkeypatch):
-    db_path = tmp_path / "stories.db"
-    monkeypatch.setattr(db, "DB_NAME", str(db_path))
-
+def stories_db(sqlalchemy_db):
     now = datetime.now(timezone.utc)
     recent = (now - timedelta(hours=3)).isoformat()
     older = (now - timedelta(days=5)).isoformat()
 
-    with sqlite3.connect(db_path) as conn:
-        conn.executescript(
-            """
-            CREATE TABLE raw_articles (
-                id TEXT PRIMARY KEY,
-                url TEXT,
-                source TEXT,
-                title TEXT,
-                content TEXT,
-                date TEXT,
-                processed INTEGER NOT NULL DEFAULT 0
-            );
-            CREATE TABLE clusters (
-                cluster_id TEXT PRIMARY KEY,
-                description TEXT,
-                created_at TEXT NOT NULL
-            );
-            CREATE TABLE topic_clusters (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                cluster_id TEXT NOT NULL,
-                article_id TEXT NOT NULL,
-                created_at TEXT NOT NULL,
-                UNIQUE(cluster_id, article_id)
-            );
-            """
-        )
-        conn.executemany(
-            "INSERT INTO raw_articles (id, url, source, title, content, date) VALUES (?, ?, ?, ?, ?, ?)",
+    insert_raw_articles(
+        [
+            {
+                "id": "a1",
+                "url": "https://example.com/a1",
+                "source": "Hoy",
+                "title": "Apagón en la capital",
+                "content": "Contenido Hoy sobre apagones",
+                "date": recent,
+                "processed": 0,
+            },
+            {
+                "id": "a2",
+                "url": "https://example.com/a2",
+                "source": "Acento",
+                "title": "Crisis eléctrica",
+                "content": "Contenido Acento sobre apagones",
+                "date": recent,
+                "processed": 0,
+            },
+            {
+                "id": "a3",
+                "url": "https://example.com/a3",
+                "source": "Hoy",
+                "title": "Vieja noticia",
+                "content": "Contenido viejo",
+                "date": older,
+                "processed": 0,
+            },
+        ]
+    )
+    with db.get_engine().begin() as conn:
+        conn.execute(
+            text(
+                """
+                INSERT INTO clusters (cluster_id, description, created_at, processed)
+                VALUES (:cluster_id, :description, :created_at, 0)
+                """
+            ),
             [
-                (
-                    "a1",
-                    "https://example.com/a1",
-                    "Hoy",
-                    "Apagón en la capital",
-                    "Contenido Hoy sobre apagones",
-                    recent,
-                ),
-                (
-                    "a2",
-                    "https://example.com/a2",
-                    "Acento",
-                    "Crisis eléctrica",
-                    "Contenido Acento sobre apagones",
-                    recent,
-                ),
-                (
-                    "a3",
-                    "https://example.com/a3",
-                    "Hoy",
-                    "Vieja noticia",
-                    "Contenido viejo",
-                    older,
-                ),
+                {
+                    "cluster_id": "story-multi",
+                    "description": "Apagones en el país",
+                    "created_at": "2026-07-29T00:00:00Z",
+                },
+                {
+                    "cluster_id": "story-old",
+                    "description": "Historia antigua",
+                    "created_at": "2026-07-20T00:00:00Z",
+                },
             ],
         )
-        conn.executemany(
-            "INSERT INTO clusters (cluster_id, description, created_at) VALUES (?, ?, ?)",
+        conn.execute(
+            text(
+                """
+                INSERT INTO topic_clusters (cluster_id, article_id, created_at)
+                VALUES (:cluster_id, :article_id, :created_at)
+                """
+            ),
             [
-                ("story-multi", "Apagones en el país", "2026-07-29T00:00:00Z"),
-                ("story-old", "Historia antigua", "2026-07-20T00:00:00Z"),
+                {
+                    "cluster_id": "story-multi",
+                    "article_id": "a1",
+                    "created_at": "2026-07-29T00:00:00Z",
+                },
+                {
+                    "cluster_id": "story-multi",
+                    "article_id": "a2",
+                    "created_at": "2026-07-29T00:00:00Z",
+                },
+                {
+                    "cluster_id": "story-old",
+                    "article_id": "a3",
+                    "created_at": "2026-07-20T00:00:00Z",
+                },
             ],
         )
-        conn.executemany(
-            "INSERT INTO topic_clusters (cluster_id, article_id, created_at) VALUES (?, ?, ?)",
-            [
-                ("story-multi", "a1", "2026-07-29T00:00:00Z"),
-                ("story-multi", "a2", "2026-07-29T00:00:00Z"),
-                ("story-old", "a3", "2026-07-20T00:00:00Z"),
-            ],
-        )
-        conn.commit()
-    return db_path
+    return sqlalchemy_db
 
 
 def test_list_stories_clamps_limit_and_days_back(monkeypatch, stories_db):
@@ -246,3 +250,182 @@ def test_get_story_full_members(stories_db):
 def test_get_story_not_found(stories_db):
     assert "Story not found: 'missing'" in tools.run_get_story("missing")
     assert "Story not found: missing story_id." in tools.run_get_story("  ")
+
+
+@pytest.fixture
+def verified_db(sqlalchemy_db, monkeypatch):
+    monkeypatch.setattr(db, "index_verified_article", lambda **_k: None)
+    now = datetime.now(timezone.utc)
+    recent = (now - timedelta(hours=3)).isoformat()
+    older = (now - timedelta(days=5)).isoformat()
+    with db.get_engine().begin() as conn:
+        conn.execute(
+            text(
+                """
+                INSERT INTO verified_articles (
+                    id, cluster_id, slug, title, content, image_url, date,
+                    sources, status, confidence, confidence_score, created_at
+                )
+                VALUES (
+                    :id, :cluster_id, :slug, :title, :content, NULL, :date,
+                    :sources, :status, :confidence, :confidence_score, :created_at
+                )
+                """
+            ),
+            [
+                {
+                    "id": "v1",
+                    "cluster_id": "cluster-recent",
+                    "slug": "apagones-cluster",
+                    "title": "Apagones en la capital",
+                    "content": "Cuerpo verificado sobre apagones.",
+                    "date": recent,
+                    "sources": "Hoy, Acento",
+                    "status": "draft",
+                    "confidence": "alta",
+                    "confidence_score": 0.91,
+                    "created_at": recent,
+                },
+                {
+                    "id": "v2",
+                    "cluster_id": "cluster-old",
+                    "slug": "historia-vieja",
+                    "title": "Historia antigua",
+                    "content": "Cuerpo viejo.",
+                    "date": older,
+                    "sources": "Hoy",
+                    "status": "draft",
+                    "confidence": None,
+                    "confidence_score": None,
+                    "created_at": older,
+                },
+                {
+                    "id": "v3",
+                    "cluster_id": "cluster-published",
+                    "slug": "reforma-publicada",
+                    "title": "Reforma fiscal publicada",
+                    "content": "Cuerpo publicado.",
+                    "date": recent,
+                    "sources": "Listin Diario",
+                    "status": "published",
+                    "confidence": None,
+                    "confidence_score": None,
+                    "created_at": recent,
+                },
+            ],
+        )
+    return sqlalchemy_db
+
+
+def test_list_verified_clamps_limit_and_days_back(monkeypatch, verified_db):
+    captured: dict = {}
+    real_fetch = tools.fetch_verified_articles
+
+    def wrapped_fetch(date_threshold, *, status=None, limit=20):
+        captured["limit"] = limit
+        captured["date_threshold"] = date_threshold
+        captured["status"] = status
+        return real_fetch(date_threshold, status=status, limit=limit)
+
+    monkeypatch.setattr(tools, "fetch_verified_articles", wrapped_fetch)
+    tools.run_list_verified_articles(days_back=10_000, limit=10_000)
+
+    assert captured["limit"] == MAX_QUERY_LIMIT
+    age = datetime.now(timezone.utc) - datetime.fromisoformat(
+        captured["date_threshold"]
+    )
+    assert abs(age.days - MAX_DAYS_BACK) <= 1
+
+
+def test_list_verified_compact_excludes_old_and_content(verified_db):
+    result = tools.run_list_verified_articles(days_back=1, limit=20)
+
+    assert "VERIFIED LIST" in result
+    assert "CLUSTER_ID: cluster-recent" in result
+    assert "SLUG: apagones-cluster" in result
+    assert "CONFIDENCE: alta" in result
+    assert "CONFIDENCE_SCORE: 0.91" in result
+    assert "CONTENT:" not in result
+    assert "cluster-old" not in result
+
+
+def test_list_verified_status_filter(verified_db):
+    result = tools.run_list_verified_articles(
+        days_back=1, limit=20, status="published"
+    )
+    assert "cluster-published" in result
+    assert "cluster-recent" not in result
+
+
+def test_list_verified_empty(monkeypatch, verified_db):
+    monkeypatch.setattr(tools, "fetch_verified_articles", lambda *_a, **_k: [])
+    result = tools.run_list_verified_articles(days_back=1)
+    assert "No verified articles found" in result
+    assert "last 1 day" in result
+
+
+def test_get_verified_full_body(verified_db):
+    result = tools.run_get_verified_article("cluster-recent")
+    assert "VERIFIED: Apagones en la capital" in result
+    assert "CLUSTER_ID: cluster-recent" in result
+    assert "SOURCES: Hoy, Acento" in result
+    assert "CONTENT:\nCuerpo verificado sobre apagones." in result
+    assert "CONFIDENCE: alta" in result
+
+
+def test_get_verified_omits_null_confidence(verified_db):
+    result = tools.run_get_verified_article("cluster-published")
+    assert "CONFIDENCE:" not in result
+    assert "CONFIDENCE_SCORE:" not in result
+
+
+def test_get_verified_not_found(verified_db):
+    assert "Verified article not found: 'missing'" in tools.run_get_verified_article(
+        "missing"
+    )
+    assert "missing cluster_id" in tools.run_get_verified_article("  ")
+
+
+def test_search_verified_clamps_and_formats(monkeypatch, verified_db):
+    from common.indexing import RetrievedVerified
+
+    captured: dict = {}
+    hit = RetrievedVerified(
+        cluster_id="cluster-recent",
+        title="Apagones en la capital",
+        score=0.95,
+        date="2099-01-01T00:00:00+00:00",
+        status="draft",
+    )
+
+    def fake_retrieve(query: str, n_results: int):
+        captured["query"] = query
+        captured["n_results"] = n_results
+        return [hit]
+
+    monkeypatch.setattr(tools, "retrieve_verified", fake_retrieve)
+
+    long_query = "x" * (MAX_TOPIC_LENGTH + 100)
+    result = tools.run_search_verified_articles(
+        long_query, limit=10_000, days_back=10_000
+    )
+
+    assert captured["query"] == "x" * MAX_TOPIC_LENGTH
+    assert "VERIFIED SEARCH" in result
+    assert "CLUSTER_ID: cluster-recent" in result
+    assert "CONTENT:\nCuerpo verificado sobre apagones." in result
+
+
+def test_search_verified_empty_after_filter(monkeypatch, verified_db):
+    from common.indexing import RetrievedVerified
+
+    hit = RetrievedVerified(
+        cluster_id="cluster-old",
+        title="Historia antigua",
+        score=0.9,
+        date="2020-01-01T00:00:00+00:00",
+        status="draft",
+    )
+    monkeypatch.setattr(tools, "retrieve_verified", lambda *_a, **_k: [hit])
+    result = tools.run_search_verified_articles("tema", days_back=1)
+    assert "No semantically relevant verified articles found" in result

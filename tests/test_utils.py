@@ -2,14 +2,15 @@
 
 from __future__ import annotations
 
-import sqlite3
 from datetime import datetime, timezone
 
 import pytest
 
+import common.db as db
 import mcp_app.utils as utils
 from common.indexing import RetrievedChunk
 from common.sources import NewsSource
+from tests.conftest import insert_raw_articles
 
 
 def _chunk(
@@ -36,46 +37,30 @@ def _chunk(
 
 
 @pytest.fixture
-def temp_db(tmp_path, monkeypatch):
-    db_path = tmp_path / "test_news.db"
-    monkeypatch.setattr(utils, "DB_NAME", str(db_path))
-    with sqlite3.connect(db_path) as conn:
-        conn.execute(
-            """
-            CREATE TABLE raw_articles (
-                id TEXT PRIMARY KEY,
-                source TEXT,
-                title TEXT,
-                date TEXT,
-                content TEXT,
-                url TEXT,
-                processed INTEGER NOT NULL DEFAULT 0
-            )
-            """
-        )
-        conn.executemany(
-            "INSERT INTO raw_articles (id, source, title, date, content, url) VALUES (?, ?, ?, ?, ?, ?)",
-            [
-                (
-                    "id-b",
-                    "Hoy",
-                    "Second",
-                    "2026-07-20T12:00:00+00:00",
-                    "b" * 100,
-                    "https://example.com/b",
-                ),
-                (
-                    "id-a",
-                    "Acento",
-                    "First",
-                    "2026-07-21T12:00:00+00:00",
-                    "a" * 100,
-                    "https://example.com/a",
-                ),
-            ],
-        )
-        conn.commit()
-    return db_path
+def temp_db(sqlalchemy_db):
+    insert_raw_articles(
+        [
+            {
+                "id": "id-b",
+                "source": "Hoy",
+                "title": "Second",
+                "date": "2026-07-20T12:00:00+00:00",
+                "content": "b" * 100,
+                "url": "https://example.com/b",
+                "processed": 0,
+            },
+            {
+                "id": "id-a",
+                "source": "Acento",
+                "title": "First",
+                "date": "2026-07-21T12:00:00+00:00",
+                "content": "a" * 100,
+                "url": "https://example.com/a",
+                "processed": 0,
+            },
+        ]
+    )
+    return sqlalchemy_db
 
 
 class TestParseArticleDate:
@@ -180,7 +165,7 @@ class TestFormatRagContext:
             text="hello world",
         )
         text = utils.format_rag_context("apagones", [chunk])
-        assert "--- RAG CONTEXT FOR TOPIC: 'apagones' ---" in text
+        assert "--- RAG CONTEXT FOR QUERY: 'apagones' ---" in text
         assert "SOURCE: Acento" in text
         assert "HEADLINE: Headline" in text
         assert "CHUNK:\nhello world\n" in text
@@ -194,6 +179,8 @@ class TestFormatRagContext:
 
 class TestQueryDb:
     def test_query_db(self, temp_db):
-        rows = utils.query_db("SELECT id, title FROM raw_articles WHERE id = ?", ("id-a",))
+        rows = db.query_db(
+            "SELECT id, title FROM raw_articles WHERE id = ?", ("id-a",)
+        )
         assert len(rows) == 1
         assert rows[0]["title"] == "First"
