@@ -2,15 +2,34 @@ import type { Metadata } from 'next'
 import { notFound } from 'next/navigation'
 import { SiteHeader } from '@/components/site-header'
 import { ArticleDetail } from '@/components/article-detail'
+import { ArticleJsonLd } from '@/components/article-json-ld'
 import { SupportCta } from '@/components/support-cta'
 import { SiteFooter } from '@/components/site-footer'
-import { getArticleBySlug } from '@/lib/api'
+import { getArticleBySlug, getPublishedSlugs } from '@/lib/api'
+import {
+  articleImage,
+  articlePath,
+  articlePublishedAt,
+  metaDescription,
+  SITE_NAME,
+} from '@/lib/seo'
 
 type PageProps = {
   params: Promise<{ slug: string }>
 }
 
-export const dynamic = 'force-dynamic'
+export const revalidate = 60
+export const dynamicParams = true
+
+export async function generateStaticParams() {
+  try {
+    const articles = await getPublishedSlugs()
+    return articles.map(({ slug }) => ({ slug }))
+  } catch (error) {
+    console.warn('Article API unavailable during static generation', error)
+    return []
+  }
+}
 
 export async function generateMetadata({
   params,
@@ -20,9 +39,31 @@ export async function generateMetadata({
   if (!article) {
     return { title: 'Artículo no encontrado — Ojo Crítico' }
   }
+  const description = metaDescription(article.summary)
+  const path = articlePath(article.slug)
+  const image = articleImage(article)
+  const publishedTime = articlePublishedAt(article)
   return {
-    title: `${article.title} — Ojo Crítico`,
-    description: article.summary,
+    title: article.title,
+    description,
+    alternates: { canonical: path },
+    openGraph: {
+      type: 'article',
+      locale: 'es_DO',
+      siteName: SITE_NAME,
+      title: article.title,
+      description,
+      url: path,
+      images: [{ url: image, alt: article.imageAlt || article.title }],
+      publishedTime,
+      authors: [article.author || SITE_NAME],
+    },
+    twitter: {
+      card: 'summary_large_image',
+      title: article.title,
+      description,
+      images: [image],
+    },
   }
 }
 
@@ -36,6 +77,7 @@ export default async function ArticlePage({ params }: PageProps) {
       <SiteHeader />
 
       <main>
+        <ArticleJsonLd article={article} />
         <section className="mx-auto max-w-3xl px-4 py-10">
           <ArticleDetail article={article} />
         </section>

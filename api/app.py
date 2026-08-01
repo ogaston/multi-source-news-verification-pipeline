@@ -3,11 +3,14 @@
 from __future__ import annotations
 
 import os
+from pathlib import Path
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 
 from api.routes.articles import router as articles_router
+from common.config import ARTICLE_IMAGES_DIR
 
 API_PORT = int(os.environ.get("API_PORT", "7002"))
 
@@ -29,6 +32,14 @@ app.add_middleware(
     allow_headers=["*"],
 )
 app.include_router(articles_router)
+
+_article_images = Path(ARTICLE_IMAGES_DIR)
+_article_images.mkdir(parents=True, exist_ok=True)
+app.mount(
+    "/media/articles",
+    StaticFiles(directory=str(_article_images)),
+    name="article-images",
+)
 
 
 @app.get("/health")

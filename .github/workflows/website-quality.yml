@@ -1,0 +1,65 @@
+name: Website quality
+
+on:
+  pull_request:
+    paths:
+      - 'website/**'
+      - 'api/**'
+      - 'common/**'
+      - '.github/workflows/website-quality.yml'
+  push:
+    branches: [main]
+
+jobs:
+  seo-mobile:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: website
+    env:
+      API_USE_DB: 'false'
+      WEBSITE_API_URL: http://127.0.0.1:7002
+      WEBSITE_URL: http://127.0.0.1:7003
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: website/package-lock.json
+
+      - name: Install API runtime
+        run: pip install -r ../api/requirements.txt
+      - name: Install website dependencies
+        run: npm ci
+
+      - name: Lint and type-check
+        run: npm run lint && npm run typecheck
+
+      - name: Start API
+        working-directory: .
+        run: python -m uvicorn api.app:app --host 127.0.0.1 --port 7002 > /tmp/ojo-api.log 2>&1 &
+      - name: Build website
+        run: npm run build
+      - name: Start website
+        run: npm start > /tmp/ojo-website.log 2>&1 &
+      - name: Wait for website
+        run: |
+          for attempt in {1..30}; do
+            curl --fail --silent http://127.0.0.1:7003/ >/dev/null && exit 0
+            sleep 2
+          done
+          exit 1
+      - name: Lighthouse mobile gate
+        run: npm run lighthouse
+
+      - name: Upload Lighthouse reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: lighthouse-reports
+          path: website/.lighthouseci

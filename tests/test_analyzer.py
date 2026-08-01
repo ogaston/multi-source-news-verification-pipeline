@@ -6,7 +6,8 @@ import json
 
 import pytest
 
-from agents.analyzer import parse_analysis
+from agents.analyzer import parse_analysis, run
+from agents.state import AnalysisOutput
 from agents.story_audit import REPORT_SECTIONS, build_graph
 from common.db import fetch_verified_article, insert_verified_article
 
@@ -57,7 +58,7 @@ def test_parse_analysis_invalid_defaults_en_revision():
     assert parsed["audit_json"] == {"raw": "not json at all"}
 
 
-def test_parse_analysis_invalid_level_defaults():
+def test_parse_analysis_schema_violation_defaults_entire_payload():
     raw = json.dumps(
         {
             "overall_confidence": "super_alta",
@@ -68,13 +69,83 @@ def test_parse_analysis_invalid_level_defaults():
     )
     parsed = parse_analysis(raw)
     assert parsed["confidence"] == "en_revision"
-    assert parsed["confidence_score"] == 1.0
+    assert parsed["confidence_score"] is None
     assert parsed["source_scores"] is None
+    assert parsed["audit_json"] == {"raw": raw}
+
+
+def test_parse_analysis_rejects_invalid_nested_score():
+    raw = json.dumps(
+        {
+            "overall_confidence": "alta",
+            "confidence_score": 0.9,
+            "source_scores": [
+                {"source": "Hoy", "reliability": 1.2, "corroboration": 0.8}
+            ],
+            "metrics": {
+                "claims_total": 1,
+                "claims_supported": 1,
+                "claims_contradicted": 0,
+                "claims_unverifiable": 0,
+                "rhetoric_risk": 0.1,
+            },
+            "rationale": "Fuente confiable.",
+        }
+    )
+    parsed = parse_analysis(raw)
+    assert parsed["confidence"] == "en_revision"
+    assert parsed["confidence_score"] is None
+    assert parsed["audit_json"] == {"raw": raw}
+
+
+def test_parse_analysis_accepts_validated_state_model():
+    result = AnalysisOutput.model_validate(
+        {
+            "overall_confidence": "alta",
+            "confidence_score": 0.9,
+            "source_scores": [],
+            "metrics": {
+                "claims_total": 1,
+                "claims_supported": 1,
+                "claims_contradicted": 0,
+                "claims_unverifiable": 0,
+                "rhetoric_risk": 0.1,
+            },
+            "rationale": "Resultado validado.",
+        }
+    )
+    parsed = parse_analysis(result)
+    assert parsed["confidence"] == "alta"
+    assert parsed["confidence_score"] == pytest.approx(0.9)
+    assert parsed["audit_json"]["rationale"] == "Resultado validado."
+
+
+def test_run_adds_validated_analysis_to_state(monkeypatch):
+    raw = json.dumps(
+        {
+            "overall_confidence": "media",
+            "confidence_score": 0.6,
+            "source_scores": [],
+            "metrics": {
+                "claims_total": 1,
+                "claims_supported": 0,
+                "claims_contradicted": 0,
+                "claims_unverifiable": 1,
+                "rhetoric_risk": 0.2,
+            },
+            "rationale": "Evidencia incompleta.",
+        }
+    )
+    monkeypatch.setattr("agents.analyzer.invoke_llm", lambda *_args, **_kwargs: raw)
+    result = run({"story": "Historia", "claims": []})
+    assert isinstance(result["analysis"], AnalysisOutput)
+    assert result["analysis"].overall_confidence == "media"
+    assert result["messages"][0].content == raw
 
 
 def test_insert_verified_article_writes_confidence(sqlalchemy_db, monkeypatch):
     monkeypatch.setattr(
-        "common.db.index_verified_article",
+        "common.indexing.index_verified_article",
         lambda **_k: None,
     )
     scores = [{"source": "Hoy", "reliability": 0.8, "corroboration": 0.6}]

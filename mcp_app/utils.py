@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
-from common.db import query_db
+from common.db import fetch_source_articles
 from common.indexing import RetrievedChunk, RetrievedStory, RetrievedVerified
 from common.sources import NewsSource
 from ingestion.pipeline import normalize_date
@@ -173,15 +173,7 @@ def load_source_articles(
     source: NewsSource, *, days_back: int = 1
 ) -> list[dict[str, Any]]:
     threshold = datetime.now(timezone.utc) - timedelta(days=max(0, days_back))
-    return query_db(
-        """
-        SELECT id, source, title, date, content, url
-        FROM raw_articles
-        WHERE source = ? AND date >= ?
-        ORDER BY date DESC
-        """,
-        (source.value, threshold.isoformat()),
-    )
+    return fetch_source_articles(source.value, threshold.isoformat())
 
 
 def format_frontpage(

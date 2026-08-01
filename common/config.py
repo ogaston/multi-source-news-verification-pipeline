@@ -33,16 +33,80 @@ QUERY_CANDIDATE_MIN = 25
 DATA_DIR = os.environ.get("DATA_DIR", "data")
 
 PREPROCESS_BATCH_SIZE = int(os.environ.get("PREPROCESS_BATCH_SIZE", "650"))
+# Max clusters to describe/index per preprocess run (0 = no limit).
+# Largest clusters are preferred; undescribed ones can be backfilled via reindex.
+PREPROCESS_CLUSTER_LIMIT = int(os.environ.get("PREPROCESS_CLUSTER_LIMIT", "0"))
 # Cosine distance threshold for AHC (≈ 1 - similarity); 0.25 ≈ similarity 0.75.
-CLUSTER_DISTANCE_THRESHOLD = float(os.environ.get("CLUSTER_DISTANCE_THRESHOLD", "0.30"))
+CLUSTER_DISTANCE_THRESHOLD = float(os.environ.get("CLUSTER_DISTANCE_THRESHOLD", "0.27"))
+# Only audit clusters whose newest member article is within this many days.
+STORY_AUDIT_MAX_AGE_DAYS = int(os.environ.get("STORY_AUDIT_MAX_AGE_DAYS", "3"))
 
-DEEPSEEK_API_KEY = os.environ.get("DEEPSEEK_API_KEY", "")
-DEEPSEEK_MODEL = os.environ.get("DEEPSEEK_MODEL", "deepseek-chat")
-DEEPSEEK_BASE_URL = os.environ.get(
-    "DEEPSEEK_BASE_URL", "https://api.deepseek.com"
+DEEPINFRA_API_KEY = os.environ.get("DEEPINFRA_API_KEY", "")
+DEEPINFRA_MODEL = os.environ.get(
+    "DEEPINFRA_MODEL", "Qwen/Qwen3.6-35B-A3B"
+)
+DEEPINFRA_BASE_URL = os.environ.get(
+    "DEEPINFRA_BASE_URL", "https://api.deepinfra.com/v1/openai"
 ).rstrip("/")
+DEEPINFRA_IMAGE_MODEL = os.environ.get(
+    "DEEPINFRA_IMAGE_MODEL", "black-forest-labs/FLUX-2-klein-4b"
+)
+DEEPINFRA_IMAGE_SIZE = os.environ.get("DEEPINFRA_IMAGE_SIZE", "1024x1024")
+ARTICLE_IMAGE_MAX_PER_BATCH = int(os.environ.get("ARTICLE_IMAGE_MAX_PER_BATCH", "6"))
+ARTICLE_IMAGES_DIR = os.environ.get(
+    "ARTICLE_IMAGES_DIR", os.path.join(DATA_DIR, "article_images")
+)
+PUBLIC_API_URL = os.environ.get("PUBLIC_API_URL", "http://localhost:7002").rstrip("/")
 CLUSTER_DESC_MAX_CHARS = int(os.environ.get("CLUSTER_DESC_MAX_CHARS", "800"))
 STORY_CHROMA_COLLECTION = os.environ.get("STORY_CHROMA_COLLECTION", "story_index")
 VERIFIED_CHROMA_COLLECTION = os.environ.get(
     "VERIFIED_CHROMA_COLLECTION", "verified_index"
+)
+
+# Serper-backed fact checking.  Every result is post-filtered against this
+# allowlist; `gob.do` also permits its subdomains (for example, one.gob.do).
+DEFAULT_FACT_CHECK_TRUSTED_DOMAINS = (
+    "gob.do",
+    "armando.info",
+    "ojo-publico.com",
+    "connectas.org",
+    "chequeado.com",
+    "aosfatos.org",
+    "agencialupa.com.br",
+    "verificado.mx",
+    "un.org",
+    "unicef.org",
+    "who.int",
+    "paho.org",
+    "oas.org",
+    "worldbank.org",
+    "imf.org",
+    "iadb.org",
+    "ilo.org",
+    "unesco.org",
+)
+FACT_CHECK_SEARCH_API_KEY = os.environ.get(
+    "FACT_CHECK_SEARCH_API_KEY", os.environ.get("SERPER_API_KEY", "")
+)
+FACT_CHECK_TRUSTED_DOMAINS = tuple(
+    domain.strip().lower().rstrip(".")
+    for domain in os.environ.get(
+        "FACT_CHECK_TRUSTED_DOMAINS",
+        ",".join(DEFAULT_FACT_CHECK_TRUSTED_DOMAINS),
+    ).split(",")
+    if domain.strip()
+)
+FACT_CHECK_MAX_SEARCHES_PER_CLUSTER = int(
+    os.environ.get("FACT_CHECK_MAX_SEARCHES_PER_CLUSTER", "10")
+)
+FACT_CHECK_RESULTS_PER_QUERY = int(
+    os.environ.get("FACT_CHECK_RESULTS_PER_QUERY", "3")
+)
+FACT_CHECK_SEARCH_GEO = os.environ.get("FACT_CHECK_SEARCH_GEO", "do")
+FACT_CHECK_SEARCH_LANG = os.environ.get("FACT_CHECK_SEARCH_LANG", "es")
+FACT_CHECK_SEARCH_TIMEOUT_SECONDS = float(
+    os.environ.get("FACT_CHECK_SEARCH_TIMEOUT_SECONDS", "15")
+)
+FACT_CHECK_SEARCH_CACHE_TTL_SECONDS = int(
+    os.environ.get("FACT_CHECK_SEARCH_CACHE_TTL_SECONDS", "86400")
 )

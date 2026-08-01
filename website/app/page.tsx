@@ -1,11 +1,37 @@
+import type { Metadata } from 'next'
 import { SiteHeader } from '@/components/site-header'
 import { LeadStory } from '@/components/lead-story'
 import { SecondaryStories, StoryList } from '@/components/story-sections'
 import { SupportCta } from '@/components/support-cta'
 import { SiteFooter } from '@/components/site-footer'
 import { getHomeData } from '@/lib/api'
+import {
+  DEFAULT_SOCIAL_IMAGE,
+  SITE_DESCRIPTION,
+  SITE_NAME,
+} from '@/lib/seo'
 
-export const dynamic = 'force-dynamic'
+export const revalidate = 60
+
+export const metadata: Metadata = {
+  title: { absolute: `${SITE_NAME} — Noticias curadas y sin sesgo` },
+  description: SITE_DESCRIPTION,
+  alternates: { canonical: '/' },
+  openGraph: {
+    type: 'website',
+    locale: 'es_DO',
+    title: SITE_NAME,
+    description: SITE_DESCRIPTION,
+    url: '/',
+    images: [{ url: DEFAULT_SOCIAL_IMAGE, alt: SITE_NAME }],
+  },
+  twitter: {
+    card: 'summary_large_image',
+    title: SITE_NAME,
+    description: SITE_DESCRIPTION,
+    images: [DEFAULT_SOCIAL_IMAGE],
+  },
+}
 
 export default async function HomePage() {
   const { leadArticle, secondaryArticles, listArticles } = await getHomeData()
@@ -15,6 +41,9 @@ export default async function HomePage() {
       <SiteHeader />
 
       <main>
+        <h1 className="sr-only">
+          Noticias dominicanas verificadas por Ojo Crítico
+        </h1>
         <section className="mx-auto max-w-6xl px-4 py-10">
           {leadArticle ? (
             <LeadStory article={leadArticle} />

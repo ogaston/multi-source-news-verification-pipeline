@@ -1,6 +1,12 @@
 import { Analytics } from '@vercel/analytics/next'
 import type { Metadata, Viewport } from 'next'
 import { Playfair_Display, Source_Serif_4, Inter } from 'next/font/google'
+import {
+  DEFAULT_SOCIAL_IMAGE,
+  SITE_DESCRIPTION,
+  SITE_NAME,
+  siteUrl,
+} from '@/lib/seo'
 import './globals.css'
 
 const playfair = Playfair_Display({
@@ -22,10 +28,28 @@ const inter = Inter({
 })
 
 export const metadata: Metadata = {
-  title: 'Ojo Crítico — Noticias curadas y sin sesgo',
-  description:
-    'Ojo Crítico presenta una versión curada, verificada y sin sesgo de cada noticia. Periodismo claro, plural y transparente.',
-  generator: 'v0.app',
+  metadataBase: siteUrl(),
+  title: {
+    default: `${SITE_NAME} — Noticias curadas y sin sesgo`,
+    template: `%s — ${SITE_NAME}`,
+  },
+  description: SITE_DESCRIPTION,
+  alternates: { canonical: '/' },
+  openGraph: {
+    type: 'website',
+    locale: 'es_DO',
+    siteName: SITE_NAME,
+    title: SITE_NAME,
+    description: SITE_DESCRIPTION,
+    url: '/',
+    images: [{ url: DEFAULT_SOCIAL_IMAGE, alt: SITE_NAME }],
+  },
+  twitter: {
+    card: 'summary_large_image',
+    title: SITE_NAME,
+    description: SITE_DESCRIPTION,
+    images: [DEFAULT_SOCIAL_IMAGE],
+  },
   icons: {
     icon: [
       {
@@ -46,6 +70,9 @@ export const metadata: Metadata = {
 }
 
 export const viewport: Viewport = {
+  width: 'device-width',
+  initialScale: 1,
+  viewportFit: 'cover',
   colorScheme: 'light',
   themeColor: '#faf8f4',
 }

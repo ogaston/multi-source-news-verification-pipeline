@@ -18,8 +18,8 @@ export function ArticleSources({ sources, description }: ArticleSourcesProps) {
               Fuentes
             </h2>
             <p className="mt-2 text-sm leading-relaxed text-muted-foreground">
-              Medios de los que se contrastó esta noticia. Cada enlace apunta a
-              la portada del medio.
+              Medios de los que se contrastó esta noticia. Cada enlace apunta al
+              artículo original en el medio.
             </p>
             <ul className="mt-4 flex flex-col gap-2">
               {sources.map((source) => (
@@ -28,7 +28,7 @@ export function ArticleSources({ sources, description }: ArticleSourcesProps) {
                     href={source.url}
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="inline-flex items-center gap-1.5 font-sans text-sm text-primary transition-colors hover:text-primary/80"
+                    className="inline-flex min-h-11 items-center gap-1.5 font-sans text-sm text-primary transition-colors hover:text-primary/80"
                   >
                     {source.name}
                     <ExternalLink className="h-3 w-3" aria-hidden />

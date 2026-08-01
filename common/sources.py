@@ -12,3 +12,7 @@ class NewsSource(str, Enum):
     DIARIO_LIBRE = "Diario Libre"
     HOY = "Hoy"
     ACENTO = "Acento"
+    REMOLACHA = "Remolacha"
+    EL_CARIBE = "El Caribe"
+    EL_NACIONAL = "El Nacional"
+    EL_DIA = "El Día"

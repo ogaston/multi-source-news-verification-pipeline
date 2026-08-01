@@ -25,7 +25,6 @@ def mock_mode(monkeypatch):
 @pytest.fixture
 def db_mode(sqlalchemy_db, monkeypatch):
     monkeypatch.setenv("API_USE_DB", "true")
-    monkeypatch.setattr(db, "index_verified_article", lambda **_k: None)
     now = datetime.now(timezone.utc)
     recent = (now - timedelta(hours=1)).isoformat()
     with db.get_engine().begin() as conn:
@@ -97,6 +96,19 @@ def test_mock_list_and_detail(client, mock_mode):
     assert body["title"].startswith("El Congreso")
     assert body["confidence"] == "alta"
     assert body["sources"]
+    assert body["author"] == "Ojo Crítico"
+
+
+def test_mock_category_filter_and_slugs(client, mock_mode):
+    category = client.get("/api/articles?category=politica")
+    assert category.status_code == 200
+    assert category.json()
+    assert {article["category"] for article in category.json()} == {"Política"}
+
+    slugs = client.get("/api/articles/slugs")
+    assert slugs.status_code == 200
+    assert any(item["slug"] == "reforma-presupuesto" for item in slugs.json())
+    assert all(item["categorySlug"] for item in slugs.json())
 
 
 def test_mock_unknown_slug(client, mock_mode):
@@ -123,6 +135,22 @@ def test_db_detail_published(client, db_mode):
     names = {s["name"] for s in body["sources"]}
     assert "Diario Libre" in names
     assert "Hoy" in names
+    assert body["publishedAt"].endswith("Z")
+
+
+def test_db_category_and_slugs_exclude_drafts(client, db_mode):
+    category = client.get("/api/articles?category=politica")
+    assert [article["slug"] for article in category.json()] == [
+        "noticia-publicada"
+    ]
+    assert client.get("/api/articles?category=no-existe").json() == []
+
+    slugs = client.get("/api/articles/slugs").json()
+    assert [item["slug"] for item in slugs] == ["noticia-publicada"]
+    assert slugs[0]["categorySlug"] == "politica"
+    assert slugs[0]["publishedAt"].endswith("Z")
+
+
 
 
 def test_db_detail_draft_is_404(client, db_mode):

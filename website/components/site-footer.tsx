@@ -1,15 +1,24 @@
+import Link from 'next/link'
+import { SECTIONS, sectionHref } from '@/lib/categories'
+
 const columns = [
   {
     title: 'Secciones',
-    links: ['Política', 'Economía', 'Clima', 'Tecnología', 'Sociedad', 'Cultura'],
+    links: SECTIONS.map((section) => ({
+      label: section.name,
+      href: sectionHref(section.slug),
+    })),
   },
   {
     title: 'Ojo Crítico',
-    links: ['Quiénes somos', 'Nuestro método', 'Código ético', 'Contacto'],
+    links: ['Nuestro método', 'Código ético', 'Contacto'].map((label) => ({
+      label,
+      href: null,
+    })),
   },
   {
     title: 'Apoyo',
-    links: ['Donar', 'Hazte socio', 'Transparencia', 'Newsletter'],
+    links: ['Donar', 'Newsletter'].map((label) => ({ label, href: null })),
   },
 ]
 
@@ -33,15 +42,19 @@ export function SiteFooter() {
               <h3 className="font-sans text-xs font-semibold uppercase tracking-widest text-foreground">
                 {column.title}
               </h3>
-              <ul className="mt-4 space-y-2.5 font-sans text-sm">
+              <ul className="mt-3 font-sans text-sm">
                 {column.links.map((link) => (
-                  <li key={link}>
-                    <a
-                      href="#"
-                      className="text-muted-foreground transition-colors hover:text-primary"
-                    >
-                      {link}
-                    </a>
+                  <li key={link.label} className="mb-3 last:mb-0">
+                    {link.href ? (
+                      <Link
+                        href={link.href}
+                        className="text-muted-foreground transition-colors hover:text-primary"
+                      >
+                        {link.label}
+                      </Link>
+                    ) : (
+                      <span className="text-muted-foreground">{link.label}</span>
+                    )}
                   </li>
                 ))}
               </ul>
@@ -51,13 +64,9 @@ export function SiteFooter() {
 
         <div className="mt-12 flex flex-col items-center justify-between gap-3 border-t border-foreground/15 pt-6 font-sans text-xs text-muted-foreground sm:flex-row">
           <p>© {new Date().getFullYear()} Ojo Crítico. Todos los derechos reservados.</p>
-          <div className="flex gap-4">
-            <a href="#" className="transition-colors hover:text-primary">
-              Privacidad
-            </a>
-            <a href="#" className="transition-colors hover:text-primary">
-              Términos
-            </a>
+          <div className="flex gap-4" aria-label="Información legal">
+            <span className="py-0.5">Privacidad</span>
+            <span className="py-0.5">Términos</span>
           </div>
         </div>
       </div>

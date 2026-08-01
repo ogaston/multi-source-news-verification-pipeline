@@ -51,6 +51,8 @@ class Cluster(Base):
 
     cluster_id: Mapped[str] = mapped_column(String, primary_key=True)
     description: Mapped[str | None] = mapped_column(Text)
+    category: Mapped[str | None] = mapped_column(String)
+    place: Mapped[str | None] = mapped_column(String)
     created_at: Mapped[str] = mapped_column(String, nullable=False)
     processed: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
 
@@ -64,6 +66,7 @@ class VerifiedArticle(Base):
     title: Mapped[str] = mapped_column(String, nullable=False)
     content: Mapped[str] = mapped_column(Text, nullable=False)
     category: Mapped[str | None] = mapped_column(String)
+    place: Mapped[str | None] = mapped_column(String)
     image_url: Mapped[str | None] = mapped_column(String)
     date: Mapped[str | None] = mapped_column(String)
     sources: Mapped[str | None] = mapped_column(String)

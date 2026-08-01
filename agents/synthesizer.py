@@ -34,6 +34,11 @@ Your job:
 - No sensational headlines, loaded adjectives, or rhetorical devices called
   out by the auditor.
 - Keep the entire article (headline + body) under {max_chars} characters.
+  Prefer a slightly shorter complete article over exceeding the limit.
+  Finish complete sentences and paragraphs; never end mid-word, mid-sentence,
+  or mid-thought. Do not cut the text off.
+- Do NOT start the body with a location or dateline (for example
+  "Santo Domingo.—"). Place/dateline is prepended later by the pipeline.
 
 Output the rewritten article only (headline + body), entirely in Spanish.
 """
@@ -44,7 +49,8 @@ PROMPT = ChatPromptTemplate.from_messages(
         (
             "human",
             (
-                "Max length: {max_chars} characters.\n\n"
+                "Max length: {max_chars} characters. Stay under that limit with a "
+                "complete article; do not truncate mid-sentence.\n\n"
                 "Original story cluster (topic reference only; do not copy loaded framing):\n\n"
                 "{story}\n\n"
                 "Judgment (authoritative for what to keep/omit):\n\n{judgment}"
@@ -54,16 +60,9 @@ PROMPT = ChatPromptTemplate.from_messages(
 )
 
 
-def _truncate(text: str, max_chars: int) -> str:
-    value = (text or "").strip()
-    if len(value) <= max_chars:
-        return value
-    return value[: max_chars - 1].rstrip() + "…"
-
-
 def run(state: StoryAuditState) -> dict:
     max_chars = FINAL_ARTICLE_MAX_CHARS
-    content = _truncate(
+    content = (
         invoke_llm(
             PROMPT,
             {
@@ -71,9 +70,9 @@ def run(state: StoryAuditState) -> dict:
                 "judgment": state.get("judgment") or "",
                 "max_chars": max_chars,
             },
-        ),
-        max_chars,
-    )
+        )
+        or ""
+    ).strip()
     return {
         "article": content,
         "messages": [AIMessage(content=content, name="synthesizer")],

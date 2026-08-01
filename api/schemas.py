@@ -27,4 +27,13 @@ class Article(BaseModel):
     confidence: ConfidenceLevel
     sources: list[ArticleSource] = Field(default_factory=list)
     date: str
+    publishedAt: str = ""
+    author: str = "Ojo Crítico"
     perspectives: list[str] | None = None
+
+
+class ArticleSlug(BaseModel):
+    slug: str
+    category: str
+    categorySlug: str
+    publishedAt: str = ""

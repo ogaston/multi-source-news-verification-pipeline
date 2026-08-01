@@ -8,7 +8,9 @@ RUN npm ci
 FROM base AS builder
 WORKDIR /app
 ARG WEBSITE_API_URL=http://api:7002
+ARG WEBSITE_URL=http://news-website.local
 ENV WEBSITE_API_URL=$WEBSITE_API_URL
+ENV WEBSITE_URL=$WEBSITE_URL
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
 RUN npm run build

@@ -1,5 +1,8 @@
+import Image from 'next/image'
+import Link from 'next/link'
 import type { Article } from '@/lib/articles'
 import { ConfidenceBadge } from '@/components/confidence-badge'
+import { articlePath, mediaSrc } from '@/lib/seo'
 
 export function LeadStory({ article }: { article: Article }) {
   return (
@@ -9,12 +12,12 @@ export function LeadStory({ article }: { article: Article }) {
           {article.category}
         </span>
         <h2 className="mt-3 text-balance font-display text-3xl font-bold leading-tight text-foreground sm:text-4xl md:text-5xl">
-          <a
-            href={`/articulo/${article.slug}`}
+          <Link
+            href={articlePath(article.slug)}
             className="transition-colors hover:text-primary"
           >
             {article.title}
-          </a>
+          </Link>
         </h2>
         <p className="mt-4 text-pretty text-lg leading-relaxed text-foreground/80">
           {article.summary}
@@ -41,9 +44,13 @@ export function LeadStory({ article }: { article: Article }) {
       </div>
 
       <div className="order-1 md:order-2">
-        <img
-          src={article.image || '/placeholder.svg'}
+        <Image
+          src={mediaSrc(article.image)}
           alt={article.imageAlt || article.title}
+          width={1200}
+          height={900}
+          priority
+          sizes="(max-width: 767px) 100vw, 50vw"
           className="aspect-[4/3] w-full object-cover"
         />
         {article.imageCaption && (

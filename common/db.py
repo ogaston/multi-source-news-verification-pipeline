@@ -6,13 +6,18 @@ import hashlib
 import json
 import re
 import unicodedata
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from sqlalchemy import create_engine, text
 from sqlalchemy.engine import Engine
 
-from common.config import DATABASE_URL, PREPROCESS_BATCH_SIZE
+from common.config import (
+    DATABASE_URL,
+    PREPROCESS_BATCH_SIZE,
+    STORY_AUDIT_MAX_AGE_DAYS,
+)
+from common.taxonomy import normalize_category, normalize_place
 
 _engine: Engine | None = None
 _QMARK_RE = re.compile(r"\?")
@@ -209,6 +214,19 @@ def fetch_all_news() -> list[dict]:
     )
 
 
+def fetch_source_articles(source: str, date_threshold: str) -> list[dict]:
+    """Articles from one outlet on/after date_threshold, newest first."""
+    return query_db(
+        """
+        SELECT id, source, title, date, content, url
+        FROM raw_articles
+        WHERE source = ? AND date >= ?
+        ORDER BY date DESC
+        """,
+        (source, date_threshold),
+    )
+
+
 def fetch_unprocessed_articles(
     limit: int = PREPROCESS_BATCH_SIZE,
 ) -> list[dict]:
@@ -300,6 +318,7 @@ def insert_clusters(
 
 
 def update_cluster_description(cluster_id: str, description: str) -> None:
+    """Update cluster description only."""
     with get_engine().begin() as conn:
         conn.execute(
             text(
@@ -309,11 +328,38 @@ def update_cluster_description(cluster_id: str, description: str) -> None:
         )
 
 
+def update_cluster_metadata(
+    cluster_id: str,
+    *,
+    description: str,
+    category: str | None = None,
+    place: str | None = None,
+) -> None:
+    with get_engine().begin() as conn:
+        conn.execute(
+            text(
+                """
+                UPDATE clusters
+                SET description = :description,
+                    category = :category,
+                    place = :place
+                WHERE cluster_id = :cluster_id
+                """
+            ),
+            {
+                "description": description,
+                "category": normalize_category(category),
+                "place": normalize_place(place),
+                "cluster_id": cluster_id,
+            },
+        )
+
+
 def fetch_cluster_articles(cluster_id: str) -> list[dict]:
-    """Return member articles (title/content/source/date) for a cluster."""
+    """Return member articles (title/content/source/date/category/url) for a cluster."""
     return query_db(
         """
-        SELECT a.id, a.url, a.source, a.title, a.content, a.date
+        SELECT a.id, a.url, a.source, a.title, a.content, a.date, a.category
         FROM topic_clusters tc
         JOIN raw_articles a ON a.id = tc.article_id
         WHERE tc.cluster_id = ?
@@ -327,7 +373,7 @@ def fetch_cluster(cluster_id: str) -> dict | None:
     """Return one cluster row, or None if missing."""
     rows = query_db(
         """
-        SELECT cluster_id, description, created_at, processed
+        SELECT cluster_id, description, category, place, created_at, processed
         FROM clusters
         WHERE cluster_id = ?
         """,
@@ -336,22 +382,50 @@ def fetch_cluster(cluster_id: str) -> dict | None:
     return rows[0] if rows else None
 
 
-def fetch_unprocessed_clusters(limit: int) -> list[dict]:
+def fetch_unprocessed_clusters(
+    limit: int,
+    *,
+    max_age_days: int = STORY_AUDIT_MAX_AGE_DAYS,
+) -> list[dict]:
     """
-    Return up to `limit` clusters with processed=0 that have a description.
-    Oldest created_at first.
+    Return up to `limit` unprocessed clusters that have a description.
+
+    Only clusters whose newest member article is within `max_age_days` of now
+    are eligible. Largest clusters first (by member article count), then oldest
+    created_at.
     """
+    date_threshold = (
+        datetime.now(timezone.utc) - timedelta(days=max(0, max_age_days))
+    ).date().isoformat()
     return query_db(
         """
-        SELECT cluster_id, description, created_at, processed
-        FROM clusters
-        WHERE processed = 0
-          AND description IS NOT NULL
-          AND TRIM(description) != ''
-        ORDER BY created_at ASC
+        SELECT
+            c.cluster_id,
+            c.description,
+            c.category,
+            c.place,
+            c.created_at,
+            c.processed,
+            COUNT(a.id) AS article_count,
+            MAX(a.date) AS latest_date
+        FROM clusters c
+        JOIN topic_clusters tc ON tc.cluster_id = c.cluster_id
+        JOIN raw_articles a ON a.id = tc.article_id
+        WHERE c.processed = 0
+          AND c.description IS NOT NULL
+          AND TRIM(c.description) != ''
+        GROUP BY
+            c.cluster_id,
+            c.description,
+            c.category,
+            c.place,
+            c.created_at,
+            c.processed
+        HAVING MAX(a.date) >= ?
+        ORDER BY article_count DESC, c.created_at ASC
         LIMIT ?
         """,
-        (limit,),
+        (date_threshold, limit),
     )
 
 
@@ -387,6 +461,7 @@ def insert_verified_article(
     date: str | None = None,
     sources: str | None = None,
     category: str | None = None,
+    place: str | None = None,
     status: str = "published",
     confidence: str | None = None,
     confidence_score: float | None = None,
@@ -407,13 +482,13 @@ def insert_verified_article(
             text(
                 f"""
                 INSERT INTO verified_articles (
-                    id, cluster_id, slug, title, content, category, image_url,
-                    date, sources, status, confidence, confidence_score,
-                    source_scores, audit_json, created_at
+                    id, cluster_id, slug, title, content, category, place,
+                    image_url, date, sources, status, confidence,
+                    confidence_score, source_scores, audit_json, created_at
                 )
                 VALUES (
                     :id, :cluster_id, :slug, :title, :content, :category,
-                    :image_url, :date, :sources, :status, :confidence,
+                    :place, :image_url, :date, :sources, :status, :confidence,
                     :confidence_score, {source_scores_sql}, {audit_json_sql},
                     :created_at
                 )
@@ -422,6 +497,7 @@ def insert_verified_article(
                     title = EXCLUDED.title,
                     content = EXCLUDED.content,
                     category = EXCLUDED.category,
+                    place = EXCLUDED.place,
                     image_url = EXCLUDED.image_url,
                     date = EXCLUDED.date,
                     sources = EXCLUDED.sources,
@@ -438,7 +514,8 @@ def insert_verified_article(
                 "slug": slug,
                 "title": title,
                 "content": content,
-                "category": category,
+                "category": normalize_category(category),
+                "place": normalize_place(place),
                 "image_url": image_url,
                 "date": date,
                 "sources": sources,
@@ -462,9 +539,24 @@ def insert_verified_article(
     return article_id
 
 
+def update_verified_article_image(article_id: str, image_url: str) -> None:
+    """Set image_url for an existing verified article."""
+    with get_engine().begin() as conn:
+        conn.execute(
+            text(
+                """
+                UPDATE verified_articles
+                SET image_url = :image_url
+                WHERE id = :id
+                """
+            ),
+            {"id": article_id, "image_url": image_url},
+        )
+
+
 _VERIFIED_SELECT = """
-    SELECT id, cluster_id, slug, title, content, category, image_url, date,
-           sources, status, confidence, confidence_score, source_scores,
+    SELECT id, cluster_id, slug, title, content, category, place, image_url,
+           date, sources, status, confidence, confidence_score, source_scores,
            audit_json, created_at
     FROM verified_articles
 """
@@ -478,8 +570,20 @@ def fetch_verified_article(cluster_id: str) -> dict | None:
     return rows[0] if rows else None
 
 
-def fetch_published_articles(*, limit: int = 100) -> list[dict]:
+def fetch_published_articles(
+    *, limit: int = 100, category: str | None = None
+) -> list[dict]:
     """Published verified articles, newest first (by date, else created_at)."""
+    if category:
+        return query_db(
+            _VERIFIED_SELECT
+            + """
+            WHERE status = 'published' AND LOWER(category) = LOWER(?)
+            ORDER BY COALESCE(date, created_at) DESC
+            LIMIT ?
+            """,
+            (category, limit),
+        )
     return query_db(
         _VERIFIED_SELECT
         + """

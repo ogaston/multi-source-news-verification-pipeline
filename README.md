@@ -9,6 +9,10 @@ Scrapes Dominican news outlets into **PostgreSQL + Chroma + LlamaIndex**, then e
 - Diario Libre
 - Hoy
 - Acento
+- Remolacha
+- El Caribe
+- El Nacional
+- El Día
 
 **Layout:** `common/` (config, db, sources), `ingestion/` (scrape + quality gates), `mcp_app/` (MCP server), `preprocessing/` (data clustering), `admin/` (SQLAdmin UI), `agents/` (LangGraph multi-agent demos).
 
@@ -24,7 +28,7 @@ pip install -r requirements.txt
 ## Ingest
 
 ```bash
-python -m ingestion.ingestor                  # all sources, default --limit 5
+python -m ingestion.ingestor                  # all sources, default --limit 100
 python -m ingestion.ingestor --source Acento --limit 10
 python -m ingestion.ingestor --write-json     # also dump debug JSON under data/
 ```
@@ -79,7 +83,7 @@ docker network create proxy
 
 cp .env.example .env
 # set MCP_DOMAIN, MCP_API_KEY, ADMIN_DOMAIN, ADMIN_USERNAME, ADMIN_PASSWORD, ADMIN_SECRET_KEY
-# set DEEPSEEK_API_KEY for cluster descriptions + story-audit
+# set DEEPINFRA_API_KEY for cluster descriptions; DEEPSEEK_API_KEY for story-audit
 
 docker compose up -d --build
 ```
@@ -104,19 +108,33 @@ python -m common.reindex
 
 Story-audit graph (DeepSeek via `agents.llm.get_llm`).
 One module per agent under `agents/` (`claim_extractor`, `fact_checker`,
-`rhetorical_auditor`, `judger`, `synthesizer`).
+`rhetorical_auditor`, `judger`, `analyzer`, `synthesizer`).
 
 `claim_extractor` → `fact_checker` ↘  
-`rhetorical_auditor` → `judger` → `synthesizer`
+`rhetorical_auditor` → `judger` → `analyzer` → `synthesizer`
 
-**Default mode** loads unprocessed clusters (`clusters.processed = 0`) in batches of
-`STORY_AUDIT_BATCH_SIZE` (default 5), audits each until none remain, upserts
-`verified_articles`, and sets `processed = 1`. The scheduler runs this every
-**15 minutes**.
+The fact checker uses Serper.dev for externally verifiable local, national,
+regional, and international claims. Set `FACT_CHECK_SEARCH_API_KEY` (or
+`SERPER_API_KEY`) before running audits. Queries are scoped with `site:`
+operators and every returned URL is post-filtered against
+`FACT_CHECK_TRUSTED_DOMAINS`; the default includes any `*.gob.do` host, selected
+Latin American fact-checkers, and major international organizations. Search is
+capped by `FACT_CHECK_MAX_SEARCHES_PER_CLUSTER` (default 10), returns at most
+`FACT_CHECK_RESULTS_PER_QUERY` accepted results per claim (default 3), and uses
+a 24-hour process-local cache. Missing keys, provider failures, exhausted
+budgets, and empty trusted results produce `insufficient evidence`, never an
+ungrounded contradiction.
+
+**Default mode** loads unprocessed clusters (`clusters.processed = 0`) whose
+newest member article is within `STORY_AUDIT_MAX_AGE_DAYS` (default 3), ranked
+by member count, in batches of `STORY_AUDIT_BATCH_SIZE` (default 5), audits
+each until none remain, upserts `verified_articles`, and sets `processed = 1`.
+The scheduler runs this every **15 minutes**.
 
 ```bash
 pip install -r agents/requirements.txt
-# set DEEPSEEK_API_KEY in agents/.env (or root .env for Docker)
+# set DEEPSEEK_API_KEY and FACT_CHECK_SEARCH_API_KEY in agents/.env
+# (or root .env for Docker)
 python -m agents.story_audit
 python -m agents.story_audit --batch-size 10
 python -m agents.story_audit --story agents/examples/luis_pie_cluster.txt  # single file

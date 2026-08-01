@@ -1,6 +1,8 @@
+import Image from 'next/image'
 import type { Article } from '@/lib/articles'
 import { ArticleSources } from '@/components/article-sources'
 import { ConfidenceBadge } from '@/components/confidence-badge'
+import { articlePublishedAt, formatArticleDate, mediaSrc } from '@/lib/seo'
 
 export function ArticleDetail({ article }: { article: Article }) {
   return (
@@ -14,7 +16,9 @@ export function ArticleDetail({ article }: { article: Article }) {
         </h1>
 
         <div className="mt-5 flex flex-wrap items-center justify-center gap-3 font-sans text-xs uppercase tracking-widest text-muted-foreground">
-          <span>{article.date}</span>
+          <time dateTime={articlePublishedAt(article)}>
+            {formatArticleDate(article)}
+          </time>
           <span aria-hidden>·</span>
           <ConfidenceBadge article={article} />
           <span aria-hidden>·</span>
@@ -24,9 +28,12 @@ export function ArticleDetail({ article }: { article: Article }) {
 
       {article.image && (
         <figure className="mt-8">
-          <img
-            src={article.image}
+          <Image
+            src={mediaSrc(article.image)}
             alt={article.imageAlt || article.title}
+            width={1200}
+            height={675}
+            sizes="(max-width: 768px) 100vw, 768px"
             className="aspect-[16/9] w-full object-cover"
           />
           {article.imageCaption && (

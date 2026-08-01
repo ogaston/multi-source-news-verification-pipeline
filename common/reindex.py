@@ -21,7 +21,7 @@ from common.db import (
     fetch_clusters_with_descriptions,
     fetch_clusters_without_descriptions,
     init_db,
-    update_cluster_description,
+    update_cluster_metadata,
 )
 from common.indexing import (
     delete_collection,
@@ -39,16 +39,32 @@ def backfill_story_descriptions() -> int:
     """Generate descriptions for clusters missing one. Returns count updated."""
     missing = fetch_clusters_without_descriptions()
     if not missing:
+        print("[reindex] no clusters missing descriptions", flush=True)
         return 0
 
+    print(f"[reindex] backfilling {len(missing)} cluster descriptions...", flush=True)
     updated = 0
     for cluster_id in missing:
-        member_articles = fetch_cluster_articles(cluster_id)
-        description = describe_cluster(member_articles)
-        update_cluster_description(cluster_id, description)
         updated += 1
-        if updated % 10 == 0 or updated == len(missing):
-            print(f"Backfilled descriptions: {updated}/{len(missing)}")
+        print(
+            f"[reindex] describe {updated}/{len(missing)} "
+            f"cluster={cluster_id[:8]}…",
+            flush=True,
+        )
+        member_articles = fetch_cluster_articles(cluster_id)
+        meta = describe_cluster(member_articles)
+        update_cluster_metadata(
+            cluster_id,
+            description=meta["description"],
+            category=meta["category"],
+            place=meta["place"],
+        )
+        print(
+            f"[reindex]   -> {meta['category']} / {meta['place']}: "
+            f"{meta['description'][:100]}",
+            flush=True,
+        )
+    print(f"[reindex] backfill complete: {updated}/{len(missing)}", flush=True)
     return updated
 
 

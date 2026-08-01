@@ -1,6 +1,8 @@
 """LangGraph story-audit workflow (DeepSeek-backed agents).
 
-Default: batch-audit unprocessed clusters until none remain.
+Default: audit the top STORY_AUDIT_BATCH_SIZE unprocessed clusters
+(by member article count; newest member article within
+STORY_AUDIT_MAX_AGE_DAYS), then stop.
 Optional: single cluster file via --story.
 
 Usage:
@@ -13,6 +15,7 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import json
 import os
 import re
 import traceback
@@ -24,10 +27,13 @@ from agents.analyzer import parse_analysis
 from agents.analyzer import run as analyzer
 from agents.claim_extractor import run as claim_extractor
 from agents.fact_checker import run as fact_checker
+from agents.image_gen import generate_article_image
 from agents.judger import run as judger
 from agents.rhetorical_auditor import run as rhetorical_auditor
 from agents.state import StoryAuditState
 from agents.synthesizer import run as synthesizer
+from agents.utils import pydantic_json_default
+from common.config import ARTICLE_IMAGE_MAX_PER_BATCH
 from common.db import (
     fetch_cluster,
     fetch_cluster_articles,
@@ -35,12 +41,14 @@ from common.db import (
     init_db,
     insert_verified_article,
     mark_cluster_processed,
+    update_verified_article_image,
 )
+from common.taxonomy import normalize_category, normalize_place
 from mcp_app.utils import format_story_detail
 
 DEFAULT_STORY_PATH = Path(__file__).parent / "examples" / "luis_pie_cluster.txt"
 DEFAULT_OUTPUT_DIR = Path(__file__).parent / "output"
-DEFAULT_BATCH_SIZE = int(os.environ.get("STORY_AUDIT_BATCH_SIZE", "5"))
+DEFAULT_BATCH_SIZE = int(os.environ.get("STORY_AUDIT_BATCH_SIZE", "15"))
 
 _STORY_ID_RE = re.compile(r"^STORY_ID:\s*(.+)$", re.MULTILINE)
 _SOURCES_RE = re.compile(r"^SOURCES:\s*(.+)$", re.MULTILINE)
@@ -90,12 +98,22 @@ def default_output_path(stem: str) -> Path:
     return DEFAULT_OUTPUT_DIR / f"{stem}_audit.txt"
 
 
-def _section_text(text: str | None) -> str:
-    value = (text or "").strip()
+def _section_text(text: object) -> str:
+    if isinstance(text, str):
+        value = text.strip()
+    elif text is None:
+        value = ""
+    else:
+        value = json.dumps(
+            text,
+            ensure_ascii=False,
+            indent=2,
+            default=pydantic_json_default,
+        )
     return value if value else "(empty response)"
 
 
-def print_agent_response(agent: str, text: str | None) -> None:
+def print_agent_response(agent: str, text: object) -> None:
     print(f"\n{'=' * 60}", flush=True)
     print(f"[{agent}]", flush=True)
     print("=" * 60, flush=True)
@@ -150,14 +168,18 @@ def split_article(article: str) -> tuple[str, str]:
 
 
 def article_sources(articles: list[dict]) -> str | None:
-    sources = sorted(
-        {
-            (article.get("source") or "").strip()
-            for article in articles
-            if (article.get("source") or "").strip()
-        }
-    )
-    return ", ".join(sources) if sources else None
+    """Serialize unique outlets with first seen article URL as JSON."""
+    by_name: dict[str, str] = {}
+    for article in articles:
+        name = (article.get("source") or "").strip()
+        url = (article.get("url") or "").strip()
+        if not name or name in by_name:
+            continue
+        by_name[name] = url
+    if not by_name:
+        return None
+    payload = [{"name": name, "url": by_name[name]} for name in sorted(by_name)]
+    return json.dumps(payload, ensure_ascii=False)
 
 
 def article_date(articles: list[dict]) -> str | None:
@@ -183,12 +205,42 @@ def parse_sources_from_text(story: str) -> str | None:
     return match.group(1).strip() or None
 
 
-def article_category(articles: list[dict]) -> str | None:
-    for article in articles:
-        category = (article.get("category") or "").strip()
-        if category:
-            return category
-    return None
+_DATELINE_SKIP_PLACES = frozenset({"NACIONAL", "INTERNACIONAL"})
+
+
+def resolve_article_metadata(
+    cluster_id: str,
+    *,
+    category: str | None = None,
+    place: str | None = None,
+) -> tuple[str, str]:
+    """Resolve category/place from cluster metadata (never raw outlet sections)."""
+    cluster = fetch_cluster(cluster_id)
+    raw_category = (category or "").strip()
+    raw_place = (place or "").strip()
+    if cluster:
+        if not raw_category:
+            raw_category = (cluster.get("category") or "").strip()
+        if not raw_place:
+            raw_place = (cluster.get("place") or "").strip()
+    return (
+        normalize_category(raw_category or None),
+        normalize_place(raw_place or None),
+    )
+
+
+def prepend_place_dateline(body: str, place: str | None) -> str:
+    """Prepend a Dominican-style dateline when place is present."""
+    text = (body or "").strip()
+    location = normalize_place(place) if (place or "").strip() else ""
+    if not location or location in _DATELINE_SKIP_PLACES:
+        return text
+    dateline = f"{location}.—"
+    if text.upper().startswith(f"{location}."):
+        return text
+    if not text:
+        return dateline
+    return f"{dateline} {text}"
 
 
 def persist_verified(
@@ -197,11 +249,19 @@ def persist_verified(
     result: dict,
     articles: list[dict] | None = None,
     sources: str | None = None,
+    category: str | None = None,
+    place: str | None = None,
 ) -> str:
     title, body = split_article(result.get("article") or "")
     if not body:
         body = title
     members = articles or []
+    resolved_category, resolved_place = resolve_article_metadata(
+        cluster_id,
+        category=category,
+        place=place,
+    )
+    body = prepend_place_dateline(body, resolved_place)
     analysis = parse_analysis(result.get("analysis"))
     article_id = insert_verified_article(
         cluster_id=cluster_id,
@@ -210,7 +270,8 @@ def persist_verified(
         image_url=None,
         date=article_date(members),
         sources=sources if sources is not None else article_sources(members),
-        category=article_category(members),
+        category=resolved_category,
+        place=resolved_place,
         status="published",
         confidence=analysis["confidence"],
         confidence_score=analysis["confidence_score"],
@@ -221,28 +282,84 @@ def persist_verified(
     return article_id
 
 
-def audit_cluster(app, cluster: dict, *, save: bool) -> None:
+def attach_cover_image(
+    *,
+    article_id: str,
+    title: str,
+    category: str | None = None,
+    place: str | None = None,
+) -> str | None:
+    """Generate a cover image and persist its URL. Soft-fails on errors."""
+    try:
+        image_url = generate_article_image(
+            article_id=article_id,
+            title=title,
+            category=category,
+            place=place,
+        )
+    except Exception as exc:
+        print(f"[image-gen] unexpected error for {article_id}: {exc}", flush=True)
+        return None
+    if not image_url:
+        return None
+    try:
+        update_verified_article_image(article_id, image_url)
+    except Exception as exc:
+        print(
+            f"[image-gen] failed to update image_url for {article_id}: {exc}",
+            flush=True,
+        )
+        return None
+    return image_url
+
+
+def audit_cluster(
+    app,
+    cluster: dict,
+    *,
+    save: bool,
+    generate_image: bool = False,
+) -> bool:
+    """
+    Audit one cluster. Returns True when a verified article was saved.
+    """
     cluster_id = cluster["cluster_id"]
     articles = fetch_cluster_articles(cluster_id)
     if not articles:
         print(f"[skip] {cluster_id}: no member articles", flush=True)
-        return
+        return False
     story = cluster_to_story_text(cluster, articles)
     print(f"\n>>> Auditing cluster {cluster_id} ({len(articles)} articles)", flush=True)
     result = run_audit(app, story)
     output_path = default_output_path(cluster_id)
     write_audit_report(output_path, result)
     print(f"Wrote audit report to {output_path}", flush=True)
-    if save:
-        article_id = persist_verified(
-            cluster_id=cluster_id,
-            result=result,
-            articles=articles,
+    if not save:
+        return False
+    article_id = persist_verified(
+        cluster_id=cluster_id,
+        result=result,
+        articles=articles,
+        category=cluster.get("category"),
+        place=cluster.get("place"),
+    )
+    print(
+        f"Saved verified_articles id={article_id} cluster_id={cluster_id}",
+        flush=True,
+    )
+    if generate_image:
+        title, _ = split_article(result.get("article") or "")
+        image_url = attach_cover_image(
+            article_id=article_id,
+            title=title,
+            category=cluster.get("category"),
+            place=cluster.get("place"),
         )
-        print(
-            f"Saved verified_articles id={article_id} cluster_id={cluster_id}",
-            flush=True,
-        )
+        if image_url:
+            print(f"Attached cover image for {article_id}: {image_url}", flush=True)
+        else:
+            print(f"No cover image for {article_id}", flush=True)
+    return True
 
 
 def run_batch(*, batch_size: int, save: bool) -> None:
@@ -250,41 +367,39 @@ def run_batch(*, batch_size: int, save: bool) -> None:
     app = build_graph()
     total_ok = 0
     total_fail = 0
-    while True:
-        batch = fetch_unprocessed_clusters(batch_size)
-        if not batch:
-            break
-        print(
-            f"\n=== Batch: {len(batch)} unprocessed cluster(s) "
-            f"(batch_size={batch_size}) ===",
-            flush=True,
-        )
-        progress = False
-        for cluster in batch:
-            cluster_id = cluster["cluster_id"]
-            try:
-                audit_cluster(app, cluster, save=save)
-                total_ok += 1
-                progress = True
-            except Exception as exc:
-                total_fail += 1
-                print(
-                    f"[error] cluster {cluster_id} failed: {exc}",
-                    flush=True,
-                )
-                traceback.print_exc()
-        if not save:
-            # Dry run does not mark processed; stop after one batch.
-            break
-        if not progress:
+    images_generated = 0
+    image_budget = max(0, ARTICLE_IMAGE_MAX_PER_BATCH)
+    batch = fetch_unprocessed_clusters(batch_size)
+    if not batch:
+        print("No unprocessed clusters to audit.", flush=True)
+        return
+    print(
+        f"\n=== Batch: {len(batch)} largest recent unprocessed cluster(s) "
+        f"(batch_size={batch_size}, image_budget={image_budget}) ===",
+        flush=True,
+    )
+    for cluster in batch:
+        cluster_id = cluster["cluster_id"]
+        try:
+            generate_image = save and images_generated < image_budget
+            saved = audit_cluster(
+                app, cluster, save=save, generate_image=generate_image
+            )
+            total_ok += 1
+            if saved and generate_image:
+                # Count the slot even if generation soft-failed so we do not
+                # retry endlessly within the same batch.
+                images_generated += 1
+        except Exception as exc:
+            total_fail += 1
             print(
-                "Stopping batch run: no clusters in this batch succeeded "
-                "(will retry on next schedule).",
+                f"[error] cluster {cluster_id} failed: {exc}",
                 flush=True,
             )
-            break
+            traceback.print_exc()
     print(
-        f"\nBatch complete: {total_ok} succeeded, {total_fail} failed.",
+        f"\nBatch complete: {total_ok} succeeded, {total_fail} failed, "
+        f"{images_generated} image slot(s) used.",
         flush=True,
     )
 
@@ -315,7 +430,8 @@ def run_story_file(
         )
     # Ensure cluster row exists so processed can be set (example files may not
     # be in DB yet).
-    if fetch_cluster(resolved_id) is None:
+    cluster = fetch_cluster(resolved_id)
+    if cluster is None:
         from datetime import datetime
 
         from common.db import insert_clusters
@@ -323,17 +439,31 @@ def run_story_file(
         insert_clusters(
             [(resolved_id, "Example / file-based audit", datetime.now().isoformat())]
         )
+        cluster = fetch_cluster(resolved_id) or {}
 
     article_id = persist_verified(
         cluster_id=resolved_id,
         result=result,
-        articles=[],
+        articles=fetch_cluster_articles(resolved_id),
         sources=parse_sources_from_text(story),
+        category=cluster.get("category"),
+        place=cluster.get("place"),
     )
     print(
         f"Saved verified_articles id={article_id} cluster_id={resolved_id}",
         flush=True,
     )
+    title, _ = split_article(result.get("article") or "")
+    image_url = attach_cover_image(
+        article_id=article_id,
+        title=title,
+        category=cluster.get("category"),
+        place=cluster.get("place"),
+    )
+    if image_url:
+        print(f"Attached cover image for {article_id}: {image_url}", flush=True)
+    else:
+        print(f"No cover image for {article_id}", flush=True)
 
 
 def parse_args() -> argparse.Namespace:

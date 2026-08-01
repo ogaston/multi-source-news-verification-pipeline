@@ -2,16 +2,14 @@
 
 from __future__ import annotations
 
-import json
 from typing import Any
 
 from langchain_core.messages import AIMessage
 from langchain_core.prompts import ChatPromptTemplate
 
 from agents.llm import invoke_llm
-from agents.state import StoryAuditState
-
-CONFIDENCE_LEVELS = frozenset({"alta", "media", "baja", "en_revision"})
+from agents.state import AnalysisOutput, ExtractedClaims, StoryAuditState
+from agents.utils import strip_json_fences
 
 SYSTEM_PROMPT = """\
 You are Analyzer. You score how trustworthy a Dominican news story cluster is
@@ -65,31 +63,28 @@ PROMPT = ChatPromptTemplate.from_messages(
 )
 
 
-def _clamp_unit(value: Any) -> float | None:
+def _invalid_analysis(raw: str) -> dict[str, Any]:
+    return {
+        "confidence": "en_revision",
+        "confidence_score": None,
+        "source_scores": None,
+        "audit_json": {"raw": raw},
+    }
+
+
+def parse_analysis_output(text: str | None) -> AnalysisOutput | None:
+    """Return a validated analyzer result, or ``None`` for invalid output."""
+
+    raw = (text or "").strip()
+    if not raw:
+        return None
     try:
-        score = float(value)
+        return AnalysisOutput.model_validate_json(strip_json_fences(raw))
     except (TypeError, ValueError):
         return None
-    if score < 0.0:
-        return 0.0
-    if score > 1.0:
-        return 1.0
-    return score
 
 
-def _strip_fences(text: str) -> str:
-    stripped = text.strip()
-    if not stripped.startswith("```"):
-        return stripped
-    lines = stripped.splitlines()
-    if lines and lines[0].startswith("```"):
-        lines = lines[1:]
-    if lines and lines[-1].strip() == "```":
-        lines = lines[:-1]
-    return "\n".join(lines).strip()
-
-
-def parse_analysis(text: str | None) -> dict[str, Any]:
+def parse_analysis(text: str | AnalysisOutput | None) -> dict[str, Any]:
     """
     Parse analyzer JSON into persistable fields.
 
@@ -97,57 +92,41 @@ def parse_analysis(text: str | None) -> dict[str, Any]:
     On failure: confidence=en_revision, score/source_scores None,
     audit_json={"raw": <original text>}.
     """
-    raw = (text or "").strip()
-    if not raw:
-        return {
-            "confidence": "en_revision",
-            "confidence_score": None,
-            "source_scores": None,
-            "audit_json": {"raw": ""},
-        }
-
-    try:
-        payload = json.loads(_strip_fences(raw))
-        if not isinstance(payload, dict):
-            raise ValueError("analyzer payload must be a JSON object")
-    except ValueError:
-        return {
-            "confidence": "en_revision",
-            "confidence_score": None,
-            "source_scores": None,
-            "audit_json": {"raw": raw},
-        }
-
-    level = payload.get("overall_confidence")
-    if not isinstance(level, str) or level not in CONFIDENCE_LEVELS:
-        level = "en_revision"
-
-    score = _clamp_unit(payload.get("confidence_score"))
-
-    source_scores = payload.get("source_scores")
-    if not isinstance(source_scores, list):
-        source_scores = None
+    if isinstance(text, AnalysisOutput):
+        payload = text
+    else:
+        raw = (text or "").strip()
+        if not raw:
+            return _invalid_analysis("")
+        payload = parse_analysis_output(raw)
+        if payload is None:
+            return _invalid_analysis(raw)
 
     return {
-        "confidence": level,
-        "confidence_score": score,
-        "source_scores": source_scores,
-        "audit_json": payload,
+        "confidence": payload.overall_confidence,
+        "confidence_score": payload.confidence_score,
+        "source_scores": [
+            source_score.model_dump() for source_score in payload.source_scores
+        ],
+        "audit_json": payload.model_dump(),
     }
 
 
 def run(state: StoryAuditState) -> dict:
+    claims_json = ExtractedClaims(
+        claims=state.get("claims") or []
+    ).model_dump_json(indent=2)
     content = invoke_llm(
         PROMPT,
         {
             "story": state.get("story") or "",
-            "claims": state.get("claims") or "",
+            "claims": claims_json,
             "fact_check": state.get("fact_check") or "",
             "rhetorical_audit": state.get("rhetorical_audit") or "",
             "judgment": state.get("judgment") or "",
         },
     )
     return {
-        "analysis": content,
+        "analysis": parse_analysis_output(content),
         "messages": [AIMessage(content=content, name="analyzer")],
     }

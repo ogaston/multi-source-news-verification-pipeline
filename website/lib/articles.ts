@@ -25,5 +25,14 @@ export type Article = {
   confidence: ConfidenceLevel
   sources: ArticleSource[]
   date: string
+  publishedAt: string
+  author: string
   perspectives?: string[]
+}
+
+export type ArticleSlug = {
+  slug: string
+  category: string
+  categorySlug: string
+  publishedAt: string
 }

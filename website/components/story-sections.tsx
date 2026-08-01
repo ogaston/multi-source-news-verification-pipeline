@@ -1,5 +1,8 @@
+import Image from 'next/image'
+import Link from 'next/link'
 import type { Article } from '@/lib/articles'
 import { ConfidenceBadge } from '@/components/confidence-badge'
+import { articlePath, mediaSrc } from '@/lib/seo'
 
 function Meta({ article }: { article: Article }) {
   return (
@@ -16,21 +19,24 @@ export function SecondaryStories({ articles }: { articles: Article[] }) {
     <div className="grid gap-8 sm:grid-cols-2">
       {articles.map((article) => (
         <article key={article.slug} className="flex flex-col">
-          <img
-            src={article.image || '/placeholder.svg'}
+          <Image
+            src={mediaSrc(article.image)}
             alt={article.imageAlt || article.title}
+            width={800}
+            height={500}
+            sizes="(max-width: 639px) 100vw, (max-width: 1023px) 50vw, 33vw"
             className="aspect-[16/10] w-full object-cover"
           />
           <span className="mt-4 font-sans text-xs uppercase tracking-widest text-primary">
             {article.category}
           </span>
           <h3 className="mt-2 text-balance font-display text-2xl font-bold leading-tight text-foreground">
-            <a
-              href={`/articulo/${article.slug}`}
+            <Link
+              href={articlePath(article.slug)}
               className="transition-colors hover:text-primary"
             >
               {article.title}
-            </a>
+            </Link>
           </h3>
           <p className="mt-2 text-pretty leading-relaxed text-foreground/75">
             {article.summary}
@@ -56,12 +62,12 @@ export function StoryList({ articles }: { articles: Article[] }) {
                 {article.category}
               </span>
               <h3 className="mt-1.5 text-balance font-display text-xl font-bold leading-snug text-foreground">
-                <a
-                  href={`/articulo/${article.slug}`}
+                <Link
+                  href={articlePath(article.slug)}
                   className="transition-colors hover:text-primary"
                 >
                   {article.title}
-                </a>
+                </Link>
               </h3>
               <p className="mt-1.5 text-pretty leading-relaxed text-foreground/75">
                 {article.summary}

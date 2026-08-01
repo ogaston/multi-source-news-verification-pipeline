@@ -1,4 +1,4 @@
-import type { Article } from '@/lib/articles'
+import type { Article, ArticleSlug } from '@/lib/articles'
 
 export type HomeData = {
   leadArticle: Article | null
@@ -14,8 +14,11 @@ function apiBaseUrl(): string {
   return base
 }
 
-async function fetchArticles(): Promise<Article[]> {
-  const res = await fetch(`${apiBaseUrl()}/api/articles`, {
+async function fetchArticles(category?: string): Promise<Article[]> {
+  const query = category
+    ? `?${new URLSearchParams({ category }).toString()}`
+    : ''
+  const res = await fetch(`${apiBaseUrl()}/api/articles${query}`, {
     next: { revalidate: 60 },
   })
   if (!res.ok) {
@@ -25,16 +28,38 @@ async function fetchArticles(): Promise<Article[]> {
 }
 
 export async function getHomeData(): Promise<HomeData> {
-  const articles = await fetchArticles()
+  let articles: Article[]
+  try {
+    articles = await fetchArticles()
+  } catch (error) {
+    console.error('Unable to load homepage articles', error)
+    articles = []
+  }
   if (articles.length === 0) {
     return { leadArticle: null, secondaryArticles: [], listArticles: [] }
   }
   const [leadArticle, ...rest] = articles
   return {
     leadArticle,
-    secondaryArticles: rest.slice(0, 2),
-    listArticles: rest.slice(2),
+    secondaryArticles: rest.slice(0, 6),
+    listArticles: rest.slice(6),
   }
+}
+
+export async function getArticlesByCategory(
+  category: string
+): Promise<Article[]> {
+  return fetchArticles(category)
+}
+
+export async function getPublishedSlugs(): Promise<ArticleSlug[]> {
+  const res = await fetch(`${apiBaseUrl()}/api/articles/slugs`, {
+    next: { revalidate: 60 },
+  })
+  if (!res.ok) {
+    throw new Error(`Failed to fetch article slugs: ${res.status}`)
+  }
+  return res.json()
 }
 
 export async function getArticleBySlug(
