@@ -2,8 +2,9 @@ import type { Article } from '@/lib/articles'
 
 export const SITE_NAME = 'Ojo Crítico'
 export const SITE_DESCRIPTION =
-  'Noticias dominicanas curadas, verificadas y presentadas con contexto, pluralidad y transparencia.'
-export const DEFAULT_SOCIAL_IMAGE = '/placeholder-logo.png'
+  'Noticias dominicanas contrastadas con múltiples fuentes y explicadas con contexto, pluralidad y transparencia.'
+export const CONTACT_EMAIL = 'admin@chalascreations.com'
+export const DEFAULT_SOCIAL_IMAGE = '/web-app-manifest-512x512.png'
 
 export function siteUrl(): URL {
   const configured = process.env.WEBSITE_URL || 'http://localhost:7003'

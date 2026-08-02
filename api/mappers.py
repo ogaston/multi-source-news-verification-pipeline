@@ -119,6 +119,11 @@ def row_to_article(row: dict[str, Any]) -> Article:
     content = row.get("content") or ""
     summary, body = _split_content(content)
     category = (row.get("category") or "").strip() or "General"
+    cluster_size = row.get("cluster_size")
+    try:
+        cluster_size_int = int(cluster_size) if cluster_size is not None else None
+    except (TypeError, ValueError):
+        cluster_size_int = None
     return Article(
         slug=row["slug"],
         category=category,
@@ -134,6 +139,7 @@ def row_to_article(row: dict[str, Any]) -> Article:
         date=row.get("date") or row.get("created_at") or "",
         publishedAt=_iso_datetime(row.get("date") or row.get("created_at")),
         perspectives=None,
+        clusterSize=cluster_size_int,
     )
 
 

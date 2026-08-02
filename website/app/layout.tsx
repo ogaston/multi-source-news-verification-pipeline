@@ -53,20 +53,23 @@ export const metadata: Metadata = {
   icons: {
     icon: [
       {
-        url: '/icon-light-32x32.png',
-        media: '(prefers-color-scheme: light)',
-      },
-      {
-        url: '/icon-dark-32x32.png',
-        media: '(prefers-color-scheme: dark)',
+        url: '/favicon.ico',
+        sizes: 'any',
       },
       {
         url: '/icon.svg',
         type: 'image/svg+xml',
       },
+      {
+        url: '/icon-96x96.png',
+        type: 'image/png',
+        sizes: '96x96',
+      },
     ],
+    shortcut: '/favicon.ico',
     apple: '/apple-icon.png',
   },
+  manifest: '/site.webmanifest',
 }
 
 export const viewport: Viewport = {
@@ -74,7 +77,7 @@ export const viewport: Viewport = {
   initialScale: 1,
   viewportFit: 'cover',
   colorScheme: 'light',
-  themeColor: '#faf8f4',
+  themeColor: '#971a1d',
 }
 
 export default function RootLayout({

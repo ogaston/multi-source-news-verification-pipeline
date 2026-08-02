@@ -84,7 +84,7 @@ export function SiteHeader() {
 
           <div className="flex flex-1 flex-col items-center text-center">
             <span className="text-[0.65rem] uppercase tracking-[0.35em] text-muted-foreground font-sans">
-              Sin manipulación · Sin sesgo
+              Contexto · Fuentes · Transparencia
             </span>
             <Link
               href="/"

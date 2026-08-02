@@ -116,12 +116,17 @@ def test_mock_unknown_slug(client, mock_mode):
     assert res.status_code == 404
 
 
-def test_db_list_excludes_drafts(client, db_mode):
+def test_db_list_excludes_drafts(client, db_mode, monkeypatch):
+    monkeypatch.setattr(
+        "api.routes.articles.apply_lead_tiebreak",
+        lambda rows, **_kw: list(rows),
+    )
     res = client.get("/api/articles")
     assert res.status_code == 200
     articles = res.json()
     slugs = {a["slug"] for a in articles}
     assert slugs == {"noticia-publicada"}
+    assert articles[0].get("clusterSize") == 0
 
 
 def test_db_detail_published(client, db_mode):

@@ -17,6 +17,7 @@ from common.config import (
     PREPROCESS_BATCH_SIZE,
     STORY_AUDIT_MAX_AGE_DAYS,
 )
+from common.pipeline_time import now_pipeline_iso
 from common.taxonomy import normalize_category, normalize_place
 
 _engine: Engine | None = None
@@ -139,7 +140,7 @@ def save_news(news: dict) -> str | None:
     Returns news id, or None if skipped due to article_key collision on a new URL.
     """
     news_id = hashlib.sha256(news["url"].encode()).hexdigest()
-    scraped_at = datetime.now().isoformat()
+    scraped_at = now_pipeline_iso()
     title = news["title"]
     content = news["content"]
     source = news.get("source")
@@ -229,8 +230,46 @@ def fetch_source_articles(source: str, date_threshold: str) -> list[dict]:
 
 def fetch_unprocessed_articles(
     limit: int = PREPROCESS_BATCH_SIZE,
+    *,
+    day_start: str | None = None,
+    day_end: str | None = None,
+    lookback_hours: int | None = None,
 ) -> list[dict]:
-    """Return up to `limit` articles with processed=0, oldest scraped first."""
+    """
+    Return up to `limit` articles with processed=0, oldest scraped first.
+
+    Prefer `day_start`/`day_end` (half-open local-day ISO bounds). Deprecated
+    `lookback_hours` > 0 keeps a rolling UTC window for manual backfill. Omit
+    both to disable the time filter.
+    """
+    if day_start is not None and day_end is not None:
+        return query_db(
+            """
+            SELECT id, url, source, title, content, date, scraped_at
+            FROM raw_articles
+            WHERE processed = 0
+              AND scraped_at >= ?
+              AND scraped_at < ?
+            ORDER BY scraped_at ASC
+            LIMIT ?
+            """,
+            (day_start, day_end, limit),
+        )
+    if lookback_hours is not None and lookback_hours > 0:
+        scraped_threshold = (
+            datetime.now(timezone.utc) - timedelta(hours=lookback_hours)
+        ).isoformat().replace("+00:00", "Z")
+        return query_db(
+            """
+            SELECT id, url, source, title, content, date, scraped_at
+            FROM raw_articles
+            WHERE processed = 0
+              AND scraped_at >= ?
+            ORDER BY scraped_at ASC
+            LIMIT ?
+            """,
+            (scraped_threshold, limit),
+        )
     return query_db(
         """
         SELECT id, url, source, title, content, date, scraped_at
@@ -391,8 +430,8 @@ def fetch_unprocessed_clusters(
     Return up to `limit` unprocessed clusters that have a description.
 
     Only clusters whose newest member article is within `max_age_days` of now
-    are eligible. Largest clusters first (by member article count), then oldest
-    created_at.
+    are eligible. Ranked by member count, then distinct sources, then newest
+    member date, then oldest created_at.
     """
     date_threshold = (
         datetime.now(timezone.utc) - timedelta(days=max(0, max_age_days))
@@ -407,6 +446,7 @@ def fetch_unprocessed_clusters(
             c.created_at,
             c.processed,
             COUNT(a.id) AS article_count,
+            COUNT(DISTINCT a.source) AS source_count,
             MAX(a.date) AS latest_date
         FROM clusters c
         JOIN topic_clusters tc ON tc.cluster_id = c.cluster_id
@@ -422,7 +462,11 @@ def fetch_unprocessed_clusters(
             c.created_at,
             c.processed
         HAVING MAX(a.date) >= ?
-        ORDER BY article_count DESC, c.created_at ASC
+        ORDER BY
+            article_count DESC,
+            source_count DESC,
+            latest_date DESC,
+            c.created_at ASC
         LIMIT ?
         """,
         (date_threshold, limit),
@@ -570,25 +614,55 @@ def fetch_verified_article(cluster_id: str) -> dict | None:
     return rows[0] if rows else None
 
 
+_PUBLISHED_SELECT = """
+    SELECT
+        v.id, v.cluster_id, v.slug, v.title, v.content, v.category, v.place,
+        v.image_url, v.date, v.sources, v.status, v.confidence,
+        v.confidence_score, v.source_scores, v.audit_json, v.created_at,
+        COALESCE(stats.cluster_size, 0) AS cluster_size,
+        COALESCE(stats.source_count, 0) AS source_count
+    FROM verified_articles v
+    LEFT JOIN (
+        SELECT
+            tc.cluster_id,
+            COUNT(a.id) AS cluster_size,
+            COUNT(DISTINCT a.source) AS source_count
+        FROM topic_clusters tc
+        JOIN raw_articles a ON a.id = tc.article_id
+        GROUP BY tc.cluster_id
+    ) stats ON stats.cluster_id = v.cluster_id
+"""
+
+
 def fetch_published_articles(
     *, limit: int = 100, category: str | None = None
 ) -> list[dict]:
-    """Published verified articles, newest first (by date, else created_at)."""
+    """
+    Published verified articles ranked by cluster importance.
+
+    Order: cluster_size DESC, source_count DESC, then newest date/created_at.
+    """
     if category:
         return query_db(
-            _VERIFIED_SELECT
+            _PUBLISHED_SELECT
             + """
-            WHERE status = 'published' AND LOWER(category) = LOWER(?)
-            ORDER BY COALESCE(date, created_at) DESC
+            WHERE v.status = 'published' AND LOWER(v.category) = LOWER(?)
+            ORDER BY
+                cluster_size DESC,
+                source_count DESC,
+                COALESCE(v.date, v.created_at) DESC
             LIMIT ?
             """,
             (category, limit),
         )
     return query_db(
-        _VERIFIED_SELECT
+        _PUBLISHED_SELECT
         + """
-        WHERE status = 'published'
-        ORDER BY COALESCE(date, created_at) DESC
+        WHERE v.status = 'published'
+        ORDER BY
+            cluster_size DESC,
+            source_count DESC,
+            COALESCE(v.date, v.created_at) DESC
         LIMIT ?
         """,
         (limit,),

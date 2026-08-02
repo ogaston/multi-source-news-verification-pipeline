@@ -6,6 +6,7 @@ import { absoluteUrl, articlePath } from '@/lib/seo'
 export const revalidate = 60
 
 export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
+  const editorialRoutes = ['/metodo', '/codigo-etico', '/contacto']
   const staticRoutes: MetadataRoute.Sitemap = [
     {
       url: absoluteUrl('/'),
@@ -16,6 +17,11 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
       url: absoluteUrl(sectionHref(section.slug)),
       changeFrequency: 'daily' as const,
       priority: 0.7,
+    })),
+    ...editorialRoutes.map((path) => ({
+      url: absoluteUrl(path),
+      changeFrequency: 'monthly' as const,
+      priority: 0.5,
     })),
   ]
 

@@ -11,10 +11,11 @@ const columns = [
   },
   {
     title: 'Ojo Crítico',
-    links: ['Nuestro método', 'Código ético', 'Contacto'].map((label) => ({
-      label,
-      href: null,
-    })),
+    links: [
+      { label: 'Nuestro método', href: '/metodo' },
+      { label: 'Código ético', href: '/codigo-etico' },
+      { label: 'Contacto', href: '/contacto' },
+    ],
   },
   {
     title: 'Apoyo',
@@ -32,8 +33,8 @@ export function SiteFooter() {
               Ojo Crítico
             </p>
             <p className="mt-3 max-w-xs text-pretty text-sm leading-relaxed text-muted-foreground">
-              Noticias curadas, verificadas y sin sesgo. Financiado por sus
-              lectores.
+              Noticias dominicanas contrastadas con múltiples fuentes,
+              explicadas con contexto y transparencia.
             </p>
           </div>
 

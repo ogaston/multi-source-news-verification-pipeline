@@ -1,5 +1,10 @@
-# Fast-test cadence (America/Santo_Domingo; set TZ on the container).
-# Production: ingest 0 6,12,18,22 * * * | preprocess */15 | story_audit */15
-# */15 * * * * python -m ingestion.ingestor
-# */20 * * * * python -m preprocessing.runner
-# */25 * * * * python -m agents.story_audit
+# America/Santo_Domingo (set TZ on the container).
+#
+# Production cadence:
+#   ingest     — every 3 hours
+#   preprocess — daily 05:15 (previous local calendar day → describe top 30)
+#   story_audit — daily 05:30 (audit top 30, image top 9)
+#
+0 */3 * * * python -m ingestion.ingestor
+15 5 * * * python -m preprocessing.runner
+30 5 * * * python -m agents.story_audit

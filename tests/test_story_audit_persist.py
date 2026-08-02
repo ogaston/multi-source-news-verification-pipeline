@@ -144,12 +144,14 @@ def test_run_batch_processes_single_top_batch(sqlalchemy_db, monkeypatch):
     assert seen == ["c1", "c2"]
 
 
-def test_run_batch_limits_image_generation_to_first_six(sqlalchemy_db, monkeypatch):
-    for i in range(8):
+def test_run_batch_limits_image_generation_to_first_nine(
+    sqlalchemy_db, monkeypatch
+):
+    for i in range(12):
         _seed_cluster(
             cluster_id=f"img{i}",
-            article_count=10 - i,
-            created_at=f"2026-07-01T{10 + i:02d}:00:00Z",
+            article_count=20 - i,
+            created_at=f"2026-07-01T{10 + (i % 10):02d}:{i:02d}:00Z",
         )
 
     image_flags: list[bool] = []
@@ -158,13 +160,41 @@ def test_run_batch_limits_image_generation_to_first_six(sqlalchemy_db, monkeypat
         image_flags.append(generate_image)
         return True
 
-    monkeypatch.setattr("agents.story_audit.ARTICLE_IMAGE_MAX_PER_BATCH", 6)
+    monkeypatch.setattr("agents.story_audit.ARTICLE_IMAGE_MAX_PER_BATCH", 9)
     monkeypatch.setattr("agents.story_audit.build_graph", lambda: MagicMock())
     monkeypatch.setattr("agents.story_audit.audit_cluster", fake_audit)
     monkeypatch.setattr("agents.story_audit.init_db", lambda: None)
 
-    run_batch(batch_size=8, save=True)
-    assert image_flags == [True, True, True, True, True, True, False, False]
+    run_batch(batch_size=12, save=True)
+    assert image_flags == [True] * 9 + [False] * 3
+
+
+def test_fetch_unprocessed_clusters_breaks_ties_by_source_count(sqlalchemy_db):
+    created = _now()
+    _seed_cluster(cluster_id="few-sources", article_count=4, created_at=created)
+    # Override sources so all four members share one outlet.
+    with db.get_engine().begin() as conn:
+        conn.execute(
+            text("UPDATE raw_articles SET source = 'Solo' WHERE id LIKE 'few-sources-%'")
+        )
+    _seed_cluster(cluster_id="many-sources", article_count=4, created_at=created)
+    with db.get_engine().begin() as conn:
+        for i in range(4):
+            conn.execute(
+                text(
+                    "UPDATE raw_articles SET source = :source "
+                    "WHERE id = :id"
+                ),
+                {"source": f"Outlet-{i}", "id": f"many-sources-a{i}"},
+            )
+
+    rows = db.fetch_unprocessed_clusters(10)
+    assert [row["cluster_id"] for row in rows[:2]] == [
+        "many-sources",
+        "few-sources",
+    ]
+    assert rows[0]["source_count"] == 4
+    assert rows[1]["source_count"] == 1
 
 
 def test_attach_cover_image_updates_db(sqlalchemy_db, monkeypatch):

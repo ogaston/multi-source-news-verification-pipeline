@@ -2,6 +2,7 @@ import type { Metadata } from 'next'
 import { SiteHeader } from '@/components/site-header'
 import { LeadStory } from '@/components/lead-story'
 import { SecondaryStories, StoryList } from '@/components/story-sections'
+import { MoreStories } from '@/components/more-stories'
 import { SupportCta } from '@/components/support-cta'
 import { SiteFooter } from '@/components/site-footer'
 import { getHomeData } from '@/lib/api'
@@ -34,7 +35,8 @@ export const metadata: Metadata = {
 }
 
 export default async function HomePage() {
-  const { leadArticle, secondaryArticles, listArticles } = await getHomeData()
+  const { leadArticle, secondaryArticles, listArticles, moreArticles } =
+    await getHomeData()
 
   return (
     <div className="min-h-screen bg-background">
@@ -67,6 +69,7 @@ export default async function HomePage() {
           </>
         )}
 
+        <MoreStories articles={moreArticles} />
         <SupportCta />
       </main>
 

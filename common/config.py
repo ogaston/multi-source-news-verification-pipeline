@@ -33,13 +33,25 @@ QUERY_CANDIDATE_MIN = 25
 DATA_DIR = os.environ.get("DATA_DIR", "data")
 
 PREPROCESS_BATCH_SIZE = int(os.environ.get("PREPROCESS_BATCH_SIZE", "650"))
+# Pipeline calendar timezone (ingest timestamps + daily preprocess day window).
+PIPELINE_TZ = os.environ.get("PIPELINE_TZ", "America/Santo_Domingo")
+# Daily preprocess selects this many local days before "today" (1 = previous day).
+PREPROCESS_DAY_OFFSET = int(os.environ.get("PREPROCESS_DAY_OFFSET", "1"))
+# Deprecated rolling-hour filter for manual backfill only (0 = off).
+# Daily cron uses the previous local calendar day, not this knob.
+PREPROCESS_LOOKBACK_HOURS = int(os.environ.get("PREPROCESS_LOOKBACK_HOURS", "0"))
 # Max clusters to describe/index per preprocess run (0 = no limit).
 # Largest clusters are preferred; undescribed ones can be backfilled via reindex.
-PREPROCESS_CLUSTER_LIMIT = int(os.environ.get("PREPROCESS_CLUSTER_LIMIT", "0"))
+PREPROCESS_CLUSTER_LIMIT = int(os.environ.get("PREPROCESS_CLUSTER_LIMIT", "30"))
 # Cosine distance threshold for AHC (≈ 1 - similarity); 0.25 ≈ similarity 0.75.
 CLUSTER_DISTANCE_THRESHOLD = float(os.environ.get("CLUSTER_DISTANCE_THRESHOLD", "0.27"))
 # Only audit clusters whose newest member article is within this many days.
-STORY_AUDIT_MAX_AGE_DAYS = int(os.environ.get("STORY_AUDIT_MAX_AGE_DAYS", "3"))
+STORY_AUDIT_MAX_AGE_DAYS = int(os.environ.get("STORY_AUDIT_MAX_AGE_DAYS", "1"))
+# Top unprocessed clusters to audit per batch run.
+STORY_AUDIT_BATCH_SIZE = int(os.environ.get("STORY_AUDIT_BATCH_SIZE", "30"))
+# Homepage layout: lead + secondary (imaged) + list.
+HOMEPAGE_SECONDARY_COUNT = int(os.environ.get("HOMEPAGE_SECONDARY_COUNT", "8"))
+HOMEPAGE_LIST_COUNT = int(os.environ.get("HOMEPAGE_LIST_COUNT", "8"))
 
 DEEPINFRA_API_KEY = os.environ.get("DEEPINFRA_API_KEY", "")
 DEEPINFRA_MODEL = os.environ.get(
@@ -51,8 +63,9 @@ DEEPINFRA_BASE_URL = os.environ.get(
 DEEPINFRA_IMAGE_MODEL = os.environ.get(
     "DEEPINFRA_IMAGE_MODEL", "black-forest-labs/FLUX-2-klein-4b"
 )
-DEEPINFRA_IMAGE_SIZE = os.environ.get("DEEPINFRA_IMAGE_SIZE", "1024x1024")
-ARTICLE_IMAGE_MAX_PER_BATCH = int(os.environ.get("ARTICLE_IMAGE_MAX_PER_BATCH", "6"))
+# 4:3 landscape (multiples of 32) for editorial covers; 3:2 e.g. 1152x768 also fine.
+DEEPINFRA_IMAGE_SIZE = os.environ.get("DEEPINFRA_IMAGE_SIZE", "1024x768")
+ARTICLE_IMAGE_MAX_PER_BATCH = int(os.environ.get("ARTICLE_IMAGE_MAX_PER_BATCH", "9"))
 ARTICLE_IMAGES_DIR = os.environ.get(
     "ARTICLE_IMAGES_DIR", os.path.join(DATA_DIR, "article_images")
 )

@@ -16,6 +16,7 @@ from api.mappers import (
 from api.mock_articles import get_mock_article, list_mock_articles
 from api.schemas import Article, ArticleSlug
 from common.db import fetch_published_article_by_slug, fetch_published_articles
+from common.homepage_rank import apply_lead_tiebreak
 
 router = APIRouter(prefix="/api/articles", tags=["articles"])
 
@@ -44,6 +45,9 @@ def list_articles(category: str | None = Query(default=None)) -> list[Article]:
             ]
         return articles
     rows = fetch_published_articles(limit=100, category=category_label)
+    # Lead LLM tiebreak only for the default homepage feed (no category).
+    if category_label is None:
+        rows = apply_lead_tiebreak(rows)
     return [row_to_article(row) for row in rows]
 
 

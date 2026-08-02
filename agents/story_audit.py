@@ -1,8 +1,9 @@
 """LangGraph story-audit workflow (DeepSeek-backed agents).
 
 Default: audit the top STORY_AUDIT_BATCH_SIZE unprocessed clusters
-(by member article count; newest member article within
-STORY_AUDIT_MAX_AGE_DAYS), then stop.
+(by member count, source diversity, then recency; newest member within
+STORY_AUDIT_MAX_AGE_DAYS), generate images for the first
+ARTICLE_IMAGE_MAX_PER_BATCH, then stop.
 Optional: single cluster file via --story.
 
 Usage:
@@ -16,7 +17,6 @@ from __future__ import annotations
 
 import argparse
 import json
-import os
 import re
 import traceback
 from pathlib import Path
@@ -33,7 +33,7 @@ from agents.rhetorical_auditor import run as rhetorical_auditor
 from agents.state import StoryAuditState
 from agents.synthesizer import run as synthesizer
 from agents.utils import pydantic_json_default
-from common.config import ARTICLE_IMAGE_MAX_PER_BATCH
+from common.config import ARTICLE_IMAGE_MAX_PER_BATCH, STORY_AUDIT_BATCH_SIZE
 from common.db import (
     fetch_cluster,
     fetch_cluster_articles,
@@ -48,7 +48,7 @@ from mcp_app.utils import format_story_detail
 
 DEFAULT_STORY_PATH = Path(__file__).parent / "examples" / "luis_pie_cluster.txt"
 DEFAULT_OUTPUT_DIR = Path(__file__).parent / "output"
-DEFAULT_BATCH_SIZE = int(os.environ.get("STORY_AUDIT_BATCH_SIZE", "15"))
+DEFAULT_BATCH_SIZE = STORY_AUDIT_BATCH_SIZE
 
 _STORY_ID_RE = re.compile(r"^STORY_ID:\s*(.+)$", re.MULTILINE)
 _SOURCES_RE = re.compile(r"^SOURCES:\s*(.+)$", re.MULTILINE)

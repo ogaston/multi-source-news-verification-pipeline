@@ -1,10 +1,7 @@
 import type { Article, ArticleSlug } from '@/lib/articles'
+import { splitHomeArticles, type HomeData } from '@/lib/home'
 
-export type HomeData = {
-  leadArticle: Article | null
-  secondaryArticles: Article[]
-  listArticles: Article[]
-}
+export type { HomeData }
 
 function apiBaseUrl(): string {
   const base = process.env.WEBSITE_API_URL?.replace(/\/$/, '')
@@ -35,15 +32,7 @@ export async function getHomeData(): Promise<HomeData> {
     console.error('Unable to load homepage articles', error)
     articles = []
   }
-  if (articles.length === 0) {
-    return { leadArticle: null, secondaryArticles: [], listArticles: [] }
-  }
-  const [leadArticle, ...rest] = articles
-  return {
-    leadArticle,
-    secondaryArticles: rest.slice(0, 6),
-    listArticles: rest.slice(6),
-  }
+  return splitHomeArticles(articles)
 }
 
 export async function getArticlesByCategory(

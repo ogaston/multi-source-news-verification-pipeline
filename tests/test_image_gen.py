@@ -20,21 +20,26 @@ def test_build_event_summary_includes_place_and_category():
         place="Santo Domingo",
     )
     assert summary == (
-        "Heated congressional debate in Santo Domingo (Política)"
+        "Contemporary news scene: Heated congressional debate, "
+        "set in Santo Domingo, topic Política"
     )
 
 
-def test_build_image_prompt_uses_samurai_jack_style():
+def test_build_image_prompt_uses_samurai_jack_aesthetic_only():
     prompt = build_image_prompt(
         "Flooding after heavy rains",
         category="Sociedad",
         place="Santiago",
     )
     assert prompt.startswith(
-        "Flooding after heavy rains in Santiago (Sociedad) depicted as"
+        "Contemporary news scene: Flooding after heavy rains, "
+        "set in Santiago, topic Sociedad."
     )
-    assert "Samurai Jack" in prompt
-    assert "No logos" in prompt
+    assert "aesthetic of Samurai Jack" in prompt
+    assert "do not include Samurai Jack" in prompt
+    assert "samurai warriors" in prompt
+    assert "no text" in prompt.lower()
+    assert "4:3" in prompt
 
 
 def test_public_image_url():
@@ -65,6 +70,7 @@ def test_generate_article_image_writes_file(tmp_path, monkeypatch):
             title="A protest downtown",
             category="Política",
             place="Santo Domingo",
+            size="1024x768",
             images_dir=tmp_path,
         )
 
@@ -73,7 +79,9 @@ def test_generate_article_image_writes_file(tmp_path, monkeypatch):
     posted = client.post.call_args
     assert posted.args[0].endswith("/images/generations")
     assert posted.kwargs["json"]["model"] == "black-forest-labs/FLUX-2-klein-4b"
-    assert "Samurai Jack" in posted.kwargs["json"]["prompt"]
+    assert posted.kwargs["json"]["size"] == "1024x768"
+    assert "aesthetic of Samurai Jack" in posted.kwargs["json"]["prompt"]
+    assert "samurai warriors" in posted.kwargs["json"]["prompt"]
 
 
 def test_generate_article_image_skips_without_api_key(tmp_path, monkeypatch):

@@ -30,6 +30,7 @@ class Article(BaseModel):
     publishedAt: str = ""
     author: str = "Ojo Crítico"
     perspectives: list[str] | None = None
+    clusterSize: int | None = None
 
 
 class ArticleSlug(BaseModel):

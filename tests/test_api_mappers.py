@@ -41,6 +41,8 @@ def test_row_to_article_uses_json_sources():
             "sources": '[{"name":"Hoy","url":"https://hoy.com.do/a"}]',
             "date": "2026-07-31",
             "created_at": "2026-07-31T12:00:00Z",
+            "cluster_size": 7,
         }
     )
     assert article.sources[0].url == "https://hoy.com.do/a"
+    assert article.clusterSize == 7

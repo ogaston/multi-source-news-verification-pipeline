@@ -17,9 +17,18 @@ from common.config import (
     PUBLIC_API_URL,
 )
 
-_PROMPT_SUFFIX = (
-    "depicted as a minimalist, highly stylized illustration "
-    "in the specific artistic style of Samurai Jack."
+# Aesthetic cue only — never request characters, IP, or lettering from the show.
+_STYLE_BLOCK = (
+    "Render as an original editorial illustration inspired only by the aesthetic "
+    "of Samurai Jack: bold silhouettes, flat color planes, stark high contrast, "
+    "sparse backgrounds, dramatic negative space, and sharp geometric shapes. "
+    "The aesthetic similarity must stop there — do not include Samurai Jack, "
+    "samurai warriors, katanas, feudal Japan, anime mascots, or any show characters "
+    "or branding. Depict a unique, authentic scene grounded in the real news event "
+    "(local architecture, climate, and people when relevant). "
+    "Landscape composition filling a 4:3 frame. "
+    "Absolutely no text, letters, numbers, captions, speech bubbles, logos, "
+    "watermarks, or readable signage."
 )
 _WHITESPACE_RE = re.compile(r"\s+")
 
@@ -34,12 +43,12 @@ def build_event_summary(
     event = _WHITESPACE_RE.sub(" ", (title or "").strip())
     if not event:
         event = "A news event"
-    bits = [event]
+    bits = [f"Contemporary news scene: {event}"]
     if place:
-        bits.append(f"in {place.strip()}")
+        bits.append(f"set in {place.strip()}")
     if category:
-        bits.append(f"({category.strip()})")
-    return " ".join(bits)
+        bits.append(f"topic {category.strip()}")
+    return ", ".join(bits)
 
 
 def build_image_prompt(
@@ -49,10 +58,7 @@ def build_image_prompt(
     place: str | None = None,
 ) -> str:
     summary = build_event_summary(title, category=category, place=place)
-    return (
-        f"{summary} {_PROMPT_SUFFIX} "
-        "No logos, no readable text, no watermarks."
-    )
+    return f"{summary}. {_STYLE_BLOCK}"
 
 
 def public_image_url(article_id: str) -> str:

@@ -28,6 +28,7 @@ export type Article = {
   publishedAt: string
   author: string
   perspectives?: string[]
+  clusterSize?: number
 }
 
 export type ArticleSlug = {
