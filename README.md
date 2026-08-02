@@ -1,6 +1,6 @@
-# News extraction pipeline
+# Multi-Source News Verification Pipeline
 
-Scrapes Dominican news outlets into **PostgreSQL + Chroma + LlamaIndex**, then exposes semantic search, story browse, and verified articles over MCP.
+Ingests Dominican news from multiple outlets, clusters related coverage, runs AI verification/synthesis, and exposes semantic search, story browse, and verified articles over MCP (**PostgreSQL + Chroma + LlamaIndex**). Product site: **Ojo Crítico**.
 
 **Sources:** 
 - Somos Pueblo
