@@ -11,8 +11,9 @@ import common.config as config
 import common.db as db
 from common.models import Base
 
-# API modules validate this before test modules are imported.
-os.environ.setdefault("API_KEY", "test-api-key")
+# API modules read API_KEY at import time. Force a stable value so CI env
+# (e.g. API_KEY=ci-test-api-key) cannot diverge from Bearer tokens in tests.
+os.environ["API_KEY"] = "test-api-key"
 
 
 @pytest.fixture

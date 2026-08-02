@@ -241,6 +241,7 @@ def test_api_list_applies_lead_tiebreak(sqlalchemy_db, monkeypatch):
     )
 
     client = TestClient(app)
+    client.headers["Authorization"] = "Bearer test-api-key"
     res = client.get("/api/articles")
     assert res.status_code == 200
     articles = res.json()

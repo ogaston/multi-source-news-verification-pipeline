@@ -130,6 +130,8 @@ def test_db_category_and_slugs_exclude_drafts(client, db_mode):
     assert [item["slug"] for item in slugs] == ["noticia-publicada"]
     assert slugs[0]["categorySlug"] == "politica"
     assert slugs[0]["publishedAt"].endswith("Z")
+
+
 def test_db_detail_draft_is_404(client, db_mode):
     res = client.get("/api/articles/noticia-borrador")
     assert res.status_code == 404
