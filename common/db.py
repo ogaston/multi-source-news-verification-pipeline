@@ -6,8 +6,9 @@ import hashlib
 import json
 import re
 import unicodedata
+from collections.abc import Mapping
 from datetime import datetime, timedelta, timezone
-from typing import Any
+from typing import Any, Literal, overload
 
 from sqlalchemy import create_engine, text
 from sqlalchemy.engine import Engine
@@ -21,7 +22,6 @@ from common.pipeline_time import now_pipeline_iso
 from common.taxonomy import normalize_category, normalize_place
 
 _engine: Engine | None = None
-_QMARK_RE = re.compile(r"\?")
 
 
 def get_engine() -> Engine:
@@ -45,31 +45,12 @@ def init_db() -> None:
         conn.execute(text("SELECT 1"))
 
 
-def _bind_qmark(sql: str, params: tuple[Any, ...] | list[Any]) -> tuple[str, dict[str, Any]]:
-    """Convert sqlite-style `?` placeholders to SQLAlchemy named binds."""
-    binds: dict[str, Any] = {}
-    idx = 0
-
-    def _repl(_match: re.Match[str]) -> str:
-        nonlocal idx
-        key = f"p{idx}"
-        binds[key] = params[idx]
-        idx += 1
-        return f":{key}"
-
-    converted = _QMARK_RE.sub(_repl, sql)
-    if idx != len(params):
-        raise ValueError(
-            f"placeholder count ({idx}) does not match params ({len(params)})"
-        )
-    return converted, binds
-
-
-def query_db(sql: str, params: tuple[Any, ...] = ()) -> list[dict[str, Any]]:
+def query_db(
+    sql: str, params: Mapping[str, Any] | None = None
+) -> list[dict[str, Any]]:
     """Run a read query; returns list of dict rows."""
-    converted, binds = _bind_qmark(sql, params)
     with get_engine().connect() as conn:
-        result = conn.execute(text(converted), binds)
+        result = conn.execute(text(sql), params or {})
         return [dict(row._mapping) for row in result]
 
 
@@ -99,18 +80,13 @@ def article_slug(title: str, cluster_id: str) -> str:
     return f"{base}-{suffix}"
 
 
-def url_exists(url: str) -> bool:
-    rows = query_db("SELECT COUNT(*) AS n FROM raw_articles WHERE url = ?", (url,))
-    return int(rows[0]["n"]) > 0
-
-
 def article_key_exists(key: str) -> bool:
     """Return True if an article with this fingerprint is already stored."""
     if not key:
         return False
     rows = query_db(
-        "SELECT 1 AS ok FROM raw_articles WHERE article_key = ? LIMIT 1",
-        (key,),
+        "SELECT 1 AS ok FROM raw_articles WHERE article_key = :key LIMIT 1",
+        {"key": key},
     )
     return bool(rows)
 
@@ -221,10 +197,10 @@ def fetch_source_articles(source: str, date_threshold: str) -> list[dict]:
         """
         SELECT id, source, title, date, content, url
         FROM raw_articles
-        WHERE source = ? AND date >= ?
+        WHERE source = :source AND date >= :date_threshold
         ORDER BY date DESC
         """,
-        (source, date_threshold),
+        {"source": source, "date_threshold": date_threshold},
     )
 
 
@@ -242,43 +218,29 @@ def fetch_unprocessed_articles(
     `lookback_hours` > 0 keeps a rolling UTC window for manual backfill. Omit
     both to disable the time filter.
     """
+    time_predicate = ""
+    params: dict[str, Any] = {"limit": limit}
     if day_start is not None and day_end is not None:
-        return query_db(
-            """
-            SELECT id, url, source, title, content, date, scraped_at
-            FROM raw_articles
-            WHERE processed = 0
-              AND scraped_at >= ?
-              AND scraped_at < ?
-            ORDER BY scraped_at ASC
-            LIMIT ?
-            """,
-            (day_start, day_end, limit),
-        )
-    if lookback_hours is not None and lookback_hours > 0:
+        time_predicate = """
+              AND scraped_at >= :day_start
+              AND scraped_at < :day_end"""
+        params.update(day_start=day_start, day_end=day_end)
+    elif lookback_hours is not None and lookback_hours > 0:
         scraped_threshold = (
             datetime.now(timezone.utc) - timedelta(hours=lookback_hours)
         ).isoformat().replace("+00:00", "Z")
-        return query_db(
-            """
-            SELECT id, url, source, title, content, date, scraped_at
-            FROM raw_articles
-            WHERE processed = 0
-              AND scraped_at >= ?
-            ORDER BY scraped_at ASC
-            LIMIT ?
-            """,
-            (scraped_threshold, limit),
-        )
+        time_predicate = "\n              AND scraped_at >= :scraped_threshold"
+        params["scraped_threshold"] = scraped_threshold
+
     return query_db(
-        """
+        f"""
         SELECT id, url, source, title, content, date, scraped_at
         FROM raw_articles
-        WHERE processed = 0
+        WHERE processed = 0{time_predicate}
         ORDER BY scraped_at ASC
-        LIMIT ?
+        LIMIT :limit
         """,
-        (limit,),
+        params,
     )
 
 
@@ -296,33 +258,34 @@ def mark_articles_processed(ids: list[str]) -> None:
         )
 
 
-def insert_topic_cluster_rows(
-    rows: list[tuple[str, str, str]],
-) -> None:
+def _execute_bulk(sql: str, params: list[dict[str, Any]]) -> None:
+    """Execute one static statement for a batch of named-bind parameter rows."""
+    if not params:
+        return
+    with get_engine().begin() as conn:
+        conn.execute(text(sql), params)
+
+
+def insert_topic_cluster_rows(rows: list[tuple[str, str, str]]) -> None:
     """
     Insert topic cluster memberships.
     Each row is (cluster_id, article_id, created_at).
     """
-    if not rows:
-        return
-    with get_engine().begin() as conn:
-        conn.execute(
-            text(
-                """
-                INSERT INTO topic_clusters (cluster_id, article_id, created_at)
-                VALUES (:cluster_id, :article_id, :created_at)
-                ON CONFLICT (cluster_id, article_id) DO NOTHING
-                """
-            ),
-            [
-                {
-                    "cluster_id": cluster_id,
-                    "article_id": article_id,
-                    "created_at": created_at,
-                }
-                for cluster_id, article_id, created_at in rows
-            ],
-        )
+    _execute_bulk(
+        """
+        INSERT INTO topic_clusters (cluster_id, article_id, created_at)
+        VALUES (:cluster_id, :article_id, :created_at)
+        ON CONFLICT (cluster_id, article_id) DO NOTHING
+        """,
+        [
+            {
+                "cluster_id": cluster_id,
+                "article_id": article_id,
+                "created_at": created_at,
+            }
+            for cluster_id, article_id, created_at in rows
+        ],
+    )
 
 
 def insert_clusters(
@@ -333,38 +296,22 @@ def insert_clusters(
     Each row is (cluster_id, description, created_at).
     New rows default to processed=0.
     """
-    if not rows:
-        return
-    with get_engine().begin() as conn:
-        conn.execute(
-            text(
-                """
-                INSERT INTO clusters
-                    (cluster_id, description, created_at, processed)
-                VALUES (:cluster_id, :description, :created_at, 0)
-                ON CONFLICT (cluster_id) DO NOTHING
-                """
-            ),
-            [
-                {
-                    "cluster_id": cluster_id,
-                    "description": description,
-                    "created_at": created_at,
-                }
-                for cluster_id, description, created_at in rows
-            ],
-        )
-
-
-def update_cluster_description(cluster_id: str, description: str) -> None:
-    """Update cluster description only."""
-    with get_engine().begin() as conn:
-        conn.execute(
-            text(
-                "UPDATE clusters SET description = :description WHERE cluster_id = :cluster_id"
-            ),
-            {"description": description, "cluster_id": cluster_id},
-        )
+    _execute_bulk(
+        """
+        INSERT INTO clusters
+            (cluster_id, description, created_at, processed)
+        VALUES (:cluster_id, :description, :created_at, 0)
+        ON CONFLICT (cluster_id) DO NOTHING
+        """,
+        [
+            {
+                "cluster_id": cluster_id,
+                "description": description,
+                "created_at": created_at,
+            }
+            for cluster_id, description, created_at in rows
+        ],
+    )
 
 
 def update_cluster_metadata(
@@ -401,10 +348,10 @@ def fetch_cluster_articles(cluster_id: str) -> list[dict]:
         SELECT a.id, a.url, a.source, a.title, a.content, a.date, a.category
         FROM topic_clusters tc
         JOIN raw_articles a ON a.id = tc.article_id
-        WHERE tc.cluster_id = ?
+        WHERE tc.cluster_id = :cluster_id
         ORDER BY a.date ASC
         """,
-        (cluster_id,),
+        {"cluster_id": cluster_id},
     )
 
 
@@ -414,9 +361,9 @@ def fetch_cluster(cluster_id: str) -> dict | None:
         """
         SELECT cluster_id, description, category, place, created_at, processed
         FROM clusters
-        WHERE cluster_id = ?
+        WHERE cluster_id = :cluster_id
         """,
-        (cluster_id,),
+        {"cluster_id": cluster_id},
     )
     return rows[0] if rows else None
 
@@ -461,15 +408,15 @@ def fetch_unprocessed_clusters(
             c.place,
             c.created_at,
             c.processed
-        HAVING MAX(a.date) >= ?
+        HAVING MAX(a.date) >= :date_threshold
         ORDER BY
             article_count DESC,
             source_count DESC,
             latest_date DESC,
             c.created_at ASC
-        LIMIT ?
+        LIMIT :limit
         """,
-        (date_threshold, limit),
+        {"date_threshold": date_threshold, "limit": limit},
     )
 
 
@@ -490,10 +437,8 @@ def _json_bind(value: Any) -> str | None:
 
 
 def _json_sql(name: str) -> str:
-    """Postgres needs an explicit jsonb cast; SQLite stores JSON as text."""
-    if get_engine().dialect.name == "postgresql":
-        return f"CAST(:{name} AS jsonb)"
-    return f":{name}"
+    """Return a PostgreSQL jsonb bind expression."""
+    return f"CAST(:{name} AS jsonb)"
 
 
 def insert_verified_article(
@@ -608,8 +553,8 @@ _VERIFIED_SELECT = """
 
 def fetch_verified_article(cluster_id: str) -> dict | None:
     rows = query_db(
-        _VERIFIED_SELECT + " WHERE cluster_id = ?",
-        (cluster_id,),
+        _VERIFIED_SELECT + " WHERE cluster_id = :cluster_id",
+        {"cluster_id": cluster_id},
     )
     return rows[0] if rows else None
 
@@ -642,37 +587,32 @@ def fetch_published_articles(
 
     Order: cluster_size DESC, source_count DESC, then newest date/created_at.
     """
+    category_predicate = ""
+    params: dict[str, Any] = {"limit": limit}
     if category:
-        return query_db(
-            _PUBLISHED_SELECT
-            + """
-            WHERE v.status = 'published' AND LOWER(v.category) = LOWER(?)
-            ORDER BY
-                cluster_size DESC,
-                source_count DESC,
-                COALESCE(v.date, v.created_at) DESC
-            LIMIT ?
-            """,
-            (category, limit),
+        category_predicate = (
+            "\n              AND LOWER(v.category) = LOWER(:category)"
         )
+        params["category"] = category
+
     return query_db(
         _PUBLISHED_SELECT
-        + """
-        WHERE v.status = 'published'
+        + f"""
+        WHERE v.status = 'published'{category_predicate}
         ORDER BY
             cluster_size DESC,
             source_count DESC,
             COALESCE(v.date, v.created_at) DESC
-        LIMIT ?
+        LIMIT :limit
         """,
-        (limit,),
+        params,
     )
 
 
 def fetch_published_article_by_slug(slug: str) -> dict | None:
     rows = query_db(
-        _VERIFIED_SELECT + " WHERE slug = ? AND status = 'published'",
-        (slug,),
+        _VERIFIED_SELECT + " WHERE slug = :slug AND status = 'published'",
+        {"slug": slug},
     )
     return rows[0] if rows else None
 
@@ -688,25 +628,20 @@ def fetch_verified_articles(
 
     Optional status filter. Ordered by newest date first.
     """
+    status_predicate = ""
+    params: dict[str, Any] = {"date_threshold": date_threshold, "limit": limit}
     if status:
-        return query_db(
-            _VERIFIED_SELECT
-            + """
-            WHERE COALESCE(date, created_at) >= ?
-              AND status = ?
-            ORDER BY COALESCE(date, created_at) DESC
-            LIMIT ?
-            """,
-            (date_threshold, status, limit),
-        )
+        status_predicate = "\n              AND status = :status"
+        params["status"] = status
+
     return query_db(
         _VERIFIED_SELECT
-        + """
-        WHERE COALESCE(date, created_at) >= ?
+        + f"""
+        WHERE COALESCE(date, created_at) >= :date_threshold{status_predicate}
         ORDER BY COALESCE(date, created_at) DESC
-        LIMIT ?
+        LIMIT :limit
         """,
-        (date_threshold, limit),
+        params,
     )
 
 
@@ -732,35 +667,14 @@ def fetch_recent_clusters(
     Optional source keeps clusters that have any matching outlet article
     in the window. Ordered by total member count DESC, then newest member date.
     """
+    source_predicate = ""
+    params: dict[str, Any] = {"date_threshold": date_threshold, "limit": limit}
     if source:
-        return query_db(
-            """
-            SELECT
-                c.cluster_id,
-                c.description,
-                c.created_at,
-                COUNT(a_all.id) AS article_count,
-                MAX(a_all.date) AS latest_date
-            FROM clusters c
-            JOIN topic_clusters tc_all
-                ON tc_all.cluster_id = c.cluster_id
-            JOIN raw_articles a_all
-                ON a_all.id = tc_all.article_id
-            WHERE c.cluster_id IN (
-                SELECT DISTINCT tc.cluster_id
-                FROM topic_clusters tc
-                JOIN raw_articles a ON a.id = tc.article_id
-                WHERE a.date >= ?
-                  AND a.source = ?
-            )
-            GROUP BY c.cluster_id, c.description, c.created_at
-            ORDER BY article_count DESC, latest_date DESC
-            LIMIT ?
-            """,
-            (date_threshold, source, limit),
-        )
+        source_predicate = "\n                  AND a.source = :source"
+        params["source"] = source
+
     return query_db(
-        """
+        f"""
         SELECT
             c.cluster_id,
             c.description,
@@ -776,36 +690,37 @@ def fetch_recent_clusters(
             SELECT DISTINCT tc.cluster_id
             FROM topic_clusters tc
             JOIN raw_articles a ON a.id = tc.article_id
-            WHERE a.date >= ?
+            WHERE a.date >= :date_threshold{source_predicate}
         )
         GROUP BY c.cluster_id, c.description, c.created_at
         ORDER BY article_count DESC, latest_date DESC
-        LIMIT ?
+        LIMIT :limit
         """,
-        (date_threshold, limit),
+        params,
     )
 
 
-def fetch_clusters_with_descriptions() -> list[dict]:
-    """Return clusters that have a non-null description."""
-    return query_db(
-        """
+@overload
+def fetch_clusters_by_description(*, has_description: Literal[True]) -> list[dict]: ...
+
+
+@overload
+def fetch_clusters_by_description(*, has_description: Literal[False]) -> list[str]: ...
+
+
+def fetch_clusters_by_description(*, has_description: bool) -> list[dict] | list[str]:
+    """Return described cluster rows or cluster IDs missing a description."""
+    description_predicate = (
+        "description IS NOT NULL AND TRIM(description) != ''"
+        if has_description
+        else "description IS NULL OR TRIM(description) = ''"
+    )
+    rows = query_db(
+        f"""
         SELECT cluster_id, description, created_at
         FROM clusters
-        WHERE description IS NOT NULL AND TRIM(description) != ''
+        WHERE {description_predicate}
         ORDER BY created_at ASC
         """
     )
-
-
-def fetch_clusters_without_descriptions() -> list[str]:
-    """Return cluster_ids missing a description."""
-    rows = query_db(
-        """
-        SELECT cluster_id
-        FROM clusters
-        WHERE description IS NULL OR TRIM(description) = ''
-        ORDER BY created_at ASC
-        """
-    )
-    return [row["cluster_id"] for row in rows]
+    return rows if has_description else [row["cluster_id"] for row in rows]

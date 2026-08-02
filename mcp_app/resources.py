@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
-from common.db import fetch_verified_article
 from common.sources import NewsSource
-from mcp_app.utils import format_frontpage, format_verified_detail, load_source_articles
+from mcp_app.tools import run_get_verified_article
+from mcp_app.utils import format_frontpage, load_source_articles
 
 
 def resolve_source_id(source_id: str) -> NewsSource | None:
@@ -35,12 +35,4 @@ def get_source_frontpage(source_id: str) -> str:
 
 
 def get_verified_resource(cluster_id: str) -> str:
-    cluster_id = (cluster_id or "").strip()
-    if not cluster_id:
-        return "Verified article not found: missing cluster_id."
-
-    article = fetch_verified_article(cluster_id)
-    if article is None:
-        return f"Verified article not found: '{cluster_id}'."
-
-    return format_verified_detail(article)
+    return run_get_verified_article(cluster_id)

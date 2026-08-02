@@ -4,47 +4,20 @@ from __future__ import annotations
 
 import json
 import re
-import unicodedata
 from datetime import datetime, timezone
 from typing import Any
 
 from api.schemas import Article, ArticleSlug, ArticleSource, ConfidenceLevel
+from common.sources import source_url
+from common.taxonomy import category_slug
 
 _CONFIDENCE_VALUES = frozenset({"alta", "media", "baja", "en_revision"})
 
-_SOURCE_URLS: dict[str, str] = {
-    "diario libre": "https://www.diariolibre.com",
-    "listín diario": "https://listindiario.com",
-    "listin diario": "https://listindiario.com",
-    "hoy": "https://hoy.com.do",
-    "acento": "https://acento.com.do",
-    "el nuevo diario": "https://elnuevodiario.com.do",
-    "somos pueblo": "https://somospueblo.com",
-}
-
 _SLUG_RE = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
-_CATEGORY_NAMES = {
-    "politica": "Política",
-    "economia": "Economía",
-    "clima": "Clima",
-    "tecnologia": "Tecnología",
-    "sociedad": "Sociedad",
-    "cultura": "Cultura",
-}
 
 
 def is_valid_slug(slug: str) -> bool:
     return bool(slug) and len(slug) <= 120 and bool(_SLUG_RE.match(slug))
-
-
-def category_slug(category: str) -> str:
-    normalized = unicodedata.normalize("NFKD", category or "")
-    ascii_category = normalized.encode("ascii", "ignore").decode("ascii")
-    return re.sub(r"[^a-z0-9]+", "-", ascii_category.casefold()).strip("-")
-
-
-def category_name(slug: str) -> str | None:
-    return _CATEGORY_NAMES.get(slug)
 
 
 def _iso_datetime(value: Any) -> str:
@@ -98,13 +71,13 @@ def _parse_sources(raw: str | None) -> list[ArticleSource]:
                     continue
                 url = str(item.get("url") or "").strip()
                 if not url:
-                    url = _SOURCE_URLS.get(name.casefold(), "#")
+                    url = source_url(name)
                 sources.append(ArticleSource(name=name, url=url))
             if sources:
                 return sources
     names = [part.strip() for part in text.split(",") if part.strip()]
     return [
-        ArticleSource(name=name, url=_SOURCE_URLS.get(name.casefold(), "#"))
+        ArticleSource(name=name, url=source_url(name))
         for name in names
     ]
 

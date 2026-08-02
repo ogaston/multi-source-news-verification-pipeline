@@ -1,156 +1,47 @@
 import re
 
-from bs4 import BeautifulSoup
-from crawl4ai.models import CrawlResult
-
 from common.sources import NewsSource
-from ingestion.providers.base import BaseNewsProvider
+from ingestion.utils.c_detail import CDetailProvider, CDetailUrlMixin
 
 
-class HoyProvider(BaseNewsProvider):
+class HoyProvider(CDetailUrlMixin, CDetailProvider):
     base_url = "https://hoy.com.do"
     source = NewsSource.HOY
-    css_selector = "article.c-detail"
-
-    def get_author(self, result: CrawlResult) -> str:
-        html = result.cleaned_html or result.html
-        if html:
-            soup = BeautifulSoup(html, "html.parser")
-            author_el = soup.select_one("a.c-detail__author__name")
-            if author_el and author_el.get_text(strip=True):
-                return author_el.get_text(strip=True)
-
-        for html in (result.html, result.cleaned_html):
-            if not html:
-                continue
-            soup = BeautifulSoup(html, "html.parser")
-            meta_author = soup.select_one('meta[property="article:author"]')
-            if meta_author and meta_author.get("content"):
-                return meta_author["content"].strip()
-
-        return result.metadata.get("author") or "Sin Autor"
-
-    def get_category(self, result: CrawlResult) -> str:
-        for html in (result.html, result.cleaned_html):
-            if not html:
-                continue
-            soup = BeautifulSoup(html, "html.parser")
-            category_el = soup.select_one("nav.c-detail__bar__category a")
-            if category_el and category_el.get_text(strip=True):
-                return category_el.get_text(strip=True)
-
-            meta_section = soup.select_one('meta[property="article:section"]')
-            if meta_section and meta_section.get("content"):
-                return meta_section["content"].strip()
-
-            category_el = soup.select_one(".c-header--section__name a")
-            if category_el and category_el.get_text(strip=True):
-                return category_el.get_text(strip=True)
-
-        return result.metadata.get("category") or "Sin Categoría"
-
-    def get_date(self, result: CrawlResult) -> str:
-        for html in (result.html, result.cleaned_html):
-            if not html:
-                continue
-            soup = BeautifulSoup(html, "html.parser")
-            meta_date = soup.select_one('meta[property="article:published_time"]')
-            if meta_date and meta_date.get("content"):
-                return meta_date["content"].strip()
-
-            date_el = soup.select_one(".c-detail__info__more__date time[datetime]")
-            if date_el:
-                dt = date_el.get("datetime")
-                if dt:
-                    return dt.strip()
-                text = date_el.get_text(strip=True)
-                if text:
-                    return text
-
-        return (
-            result.metadata.get("date")
-            or result.metadata.get("og:article:published_time")
-            or "Sin Fecha"
-        )
-
-    def get_title(self, result: CrawlResult) -> str:
-        html = result.cleaned_html or result.html
-        if html:
-            soup = BeautifulSoup(html, "html.parser")
-            title_el = soup.select_one("h1.c-detail__title")
-            if title_el:
-                return title_el.get_text(strip=True)
-        return result.metadata.get("title") or "Sin Título"
-
-    def get_content(self, result: CrawlResult) -> str:
-        html = result.cleaned_html or result.html
-        if html:
-            soup = BeautifulSoup(html, "html.parser")
-            content_el = soup.select_one("div.c-detail__body")
-            if content_el:
-                for junk in content_el.select(
-                    ".c-detail__author, .c-detail__share, .c-detail__tags-content, "
-                    ".c-add, .c-add-600, .composite-video, .video-player, "
-                    ".c-detail__media, .c-detail__box, .c-author--detail, "
-                    ".Content_Bottom, .c-detail__info__more, "
-                    "style, script, iframe, aside, nav"
-                ):
-                    junk.decompose()
-
-                paragraphs = [
-                    p.get_text(" ", strip=True)
-                    for p in content_el.select("p.paragraph")
-                    if p.get_text(strip=True)
-                    and "Recibe en tu correo" not in p.get_text()
-                    and "Suscríbete" not in p.get_text()
-                ]
-                if paragraphs:
-                    return "\n\n".join(paragraphs)
-
-                paragraphs = [
-                    p.get_text(" ", strip=True)
-                    for p in content_el.select("p")
-                    if p.get_text(strip=True)
-                    and "Recibe en tu correo" not in p.get_text()
-                    and "Suscríbete" not in p.get_text()
-                ]
-                if paragraphs:
-                    return "\n\n".join(paragraphs)
-
-                return content_el.get_text("\n", strip=True)
-        return result.markdown
-
-    def is_valid_url(self, url: str) -> bool:
-        if not url.startswith(self.base_url):
-            return False
-
-        if not re.search(r"/[^/]+/[^/]+_\d+\.html(?:\?|$)", url):
-            return False
-
-        ignored_keywords = [
-            "/autores/",
-            "/autor/",
-            "/tag/",
-            "/tags/",
-            "/page/",
-            "/buscar",
-            "/search",
-            "/login",
-            "/registro",
-            "/suscrib",
-            "/newsletter",
-            "/obituarios/",
-            "/galerias/",
-            "/videos/",
-            "/podcast",
-            "/hoy-tv/",
-            "/wp-content/",
-            "/files/",
-            "/contactos",
-            "/quienes-somos",
-            "/politicas-de-cookies",
-            "/ediciones-impresas/",
-            "/horoscopo/",
-            "/loterias/",
-        ]
-        return not any(keyword in url for keyword in ignored_keywords)
+    category_selectors = [
+        "nav.c-detail__bar__category a",
+        ".c-header--section__name a",
+    ]
+    content_junk_selectors = (
+        ".c-detail__author, .c-detail__share, .c-detail__tags-content, "
+        ".c-add, .c-add-600, .composite-video, .video-player, "
+        ".c-detail__media, .c-detail__box, .c-author--detail, "
+        ".Content_Bottom, .c-detail__info__more, "
+        "style, script, iframe, aside, nav"
+    )
+    url_path_pattern = re.compile(r"/[^/]+/[^/]+_\d+\.html(?:\?|$)")
+    url_denied_keywords = (
+        "/autores/",
+        "/autor/",
+        "/tag/",
+        "/tags/",
+        "/page/",
+        "/buscar",
+        "/search",
+        "/login",
+        "/registro",
+        "/suscrib",
+        "/newsletter",
+        "/obituarios/",
+        "/galerias/",
+        "/videos/",
+        "/podcast",
+        "/hoy-tv/",
+        "/wp-content/",
+        "/files/",
+        "/contactos",
+        "/quienes-somos",
+        "/politicas-de-cookies",
+        "/ediciones-impresas/",
+        "/horoscopo/",
+        "/loterias/",
+    )

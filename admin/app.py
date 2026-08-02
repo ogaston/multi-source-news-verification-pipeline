@@ -4,7 +4,6 @@ import os
 
 from fastapi import FastAPI
 from sqladmin import Admin
-from sqlalchemy import create_engine
 from starlette.middleware.sessions import SessionMiddleware
 
 from admin.auth import AdminAuth
@@ -14,23 +13,20 @@ from admin.views import (
     TopicClusterAdmin,
     VerifiedArticleAdmin,
 )
+from common.db import get_engine
 
-DATABASE_URL = os.environ.get(
-    "DATABASE_URL",
-    "postgresql+psycopg://news:news@localhost:5432/news",
-)
 ADMIN_SECRET_KEY = os.environ.get("ADMIN_SECRET_KEY", "dev-insecure-secret-change-me")
 
-engine = create_engine(DATABASE_URL, pool_pre_ping=True)
+engine = get_engine()
 
-app = FastAPI(title="News pipeline admin")
+app = FastAPI(title="Ojo Crítico admin")
 app.add_middleware(SessionMiddleware, secret_key=ADMIN_SECRET_KEY)
 
 authentication_backend = AdminAuth(secret_key=ADMIN_SECRET_KEY)
 admin = Admin(
     app,
     engine,
-    title="News Pipeline Admin",
+    title="Ojo Crítico — Multi-Source News Verification Pipeline",
     authentication_backend=authentication_backend,
 )
 admin.add_view(RawArticleAdmin)

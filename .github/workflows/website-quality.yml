@@ -13,12 +13,28 @@ on:
 jobs:
   seo-mobile:
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: news
+          POSTGRES_PASSWORD: news
+          POSTGRES_DB: news
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U news -d news"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
     defaults:
       run:
         working-directory: website
     env:
-      API_USE_DB: 'false'
+      API_KEY: ci-test-api-key
+      DATABASE_URL: postgresql+psycopg://news:news@127.0.0.1:5432/news
       WEBSITE_API_URL: http://127.0.0.1:7002
+      WEBSITE_API_KEY: ci-test-api-key
       WEBSITE_URL: http://127.0.0.1:7003
 
     steps:
@@ -33,13 +49,16 @@ jobs:
           cache-dependency-path: website/package-lock.json
 
       - name: Install API runtime
-        run: pip install -r ../api/requirements.txt
+        run: pip install -r ../api/requirements.txt alembic==1.16.4
       - name: Install website dependencies
         run: npm ci
 
       - name: Lint and type-check
         run: npm run lint && npm run typecheck
 
+      - name: Migrate and seed database
+        working-directory: .
+        run: alembic upgrade head && python -m scripts.seed_demo
       - name: Start API
         working-directory: .
         run: python -m uvicorn api.app:app --host 127.0.0.1 --port 7002 > /tmp/ojo-api.log 2>&1 &

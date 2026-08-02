@@ -6,8 +6,6 @@ DATABASE_URL = os.environ.get(
     "DATABASE_URL",
     "postgresql+psycopg://news:news@localhost:5432/news",
 )
-# Source SQLite path for the one-shot ops migration script only.
-DB_NAME = os.environ.get("DB_NAME", "dominican_news_repository.db")
 CHROMA_PATH = os.environ.get("CHROMA_PATH", "./chroma_db")
 # v2 = chunked LlamaIndex nodes (not whole-article vectors).
 CHROMA_COLLECTION = os.environ.get("CHROMA_COLLECTION", "news_index_v2")
@@ -52,6 +50,22 @@ STORY_AUDIT_BATCH_SIZE = int(os.environ.get("STORY_AUDIT_BATCH_SIZE", "30"))
 # Homepage layout: lead + secondary (imaged) + list.
 HOMEPAGE_SECONDARY_COUNT = int(os.environ.get("HOMEPAGE_SECONDARY_COUNT", "8"))
 HOMEPAGE_LIST_COUNT = int(os.environ.get("HOMEPAGE_LIST_COUNT", "8"))
+
+
+def get_deepseek_config() -> tuple[str, str, str, int, int, float]:
+    return (
+        os.environ.get("DEEPSEEK_API_KEY", ""),
+        os.environ.get("DEEPSEEK_MODEL", "deepseek-chat"),
+        os.environ.get("DEEPSEEK_BASE_URL", "https://api.deepseek.com"),
+        int(os.environ.get("DEEPSEEK_MAX_TOKENS", "4096")),
+        int(os.environ.get("DEEPSEEK_MAX_RETRIES", "5")),
+        float(os.environ.get("DEEPSEEK_RETRY_WAIT", "8")),
+    )
+
+
+def get_final_article_max_chars() -> int:
+    return int(os.environ.get("FINAL_ARTICLE_MAX_CHARS", "1500"))
+
 
 DEEPINFRA_API_KEY = os.environ.get("DEEPINFRA_API_KEY", "")
 DEEPINFRA_MODEL = os.environ.get(

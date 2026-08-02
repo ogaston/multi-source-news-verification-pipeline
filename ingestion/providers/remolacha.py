@@ -1,41 +1,24 @@
-import json
 import re
-from collections.abc import Iterator
 from urllib.parse import urlparse
 
 from bs4 import BeautifulSoup
 from crawl4ai.models import CrawlResult
 
 from common.sources import NewsSource
-from ingestion.providers.base import BaseNewsProvider
+from ingestion.utils.base import BaseNewsProvider
+from ingestion.utils.html_utils import (
+    BLOG_ARTICLE_TYPES,
+    decompose_junk,
+    extract_blocks,
+    first_text,
+    iter_html_variants,
+    ld_field,
+    meta_content,
+    news_article_ld,
+    soup_from_result,
+)
 
 HTML_PARSER = "html.parser"
-
-
-def _json_ld_nodes(soup: BeautifulSoup) -> Iterator[dict]:
-    for script in soup.select('script[type="application/ld+json"]'):
-        try:
-            data = json.loads(script.string or script.get_text() or "")
-        except (json.JSONDecodeError, TypeError):
-            continue
-        items = data if isinstance(data, list) else [data]
-        for item in items:
-            if not isinstance(item, dict):
-                continue
-            graph = item.get("@graph")
-            if isinstance(graph, list):
-                yield from (node for node in graph if isinstance(node, dict))
-            yield item
-
-
-def _article_data(soup: BeautifulSoup) -> dict:
-    for node in _json_ld_nodes(soup):
-        types = node.get("@type", [])
-        if isinstance(types, str):
-            types = [types]
-        if any(kind in {"Article", "BlogPosting", "NewsArticle"} for kind in types):
-            return node
-    return {}
 
 
 def _post_category(soup: BeautifulSoup) -> str | None:
@@ -91,60 +74,38 @@ def _timestamp_date(soup: BeautifulSoup) -> str | None:
     )
 
 
-def _extract_blocks(container) -> str:
-    junk_phrases = (
-        "(Seguir leyendo",
-        "Read more ›",
-        "⬆️(clic en foto pa’ ver el video)",
-        "Dímelo, ¿qué opinas?",
-        "Tú sí eres “ponemano”",
-    )
-    blocks = []
-    for element in container.select("p, h2, h3, blockquote, li"):
-        text = element.get_text(" ", strip=True)
-        if text and not any(phrase in text for phrase in junk_phrases):
-            blocks.append(text)
-    return "\n\n".join(blocks)
-
-
 class RemolachaProvider(BaseNewsProvider):
     base_url = "https://remolacha.net"
     source = NewsSource.REMOLACHA
     css_selector = "div.post.type-post.hentry"
 
     def get_author(self, result: CrawlResult) -> str:
-        html = result.cleaned_html or result.html
-        if html:
-            soup = BeautifulSoup(html, HTML_PARSER)
-            author_el = soup.select_one(".post-meta .author.vcard .fn")
-            if author_el and author_el.get_text(strip=True):
-                return author_el.get_text(" ", strip=True)
+        soup = soup_from_result(result)
+        if soup:
+            author = first_text(soup, [".post-meta .author.vcard .fn"])
+            if author:
+                return author
 
-            meta_author = soup.select_one('meta[name="author"]')
-            if meta_author and meta_author.get("content"):
-                return meta_author["content"].strip()
+            author_meta = meta_content(soup, "author")
+            if author_meta:
+                return author_meta
 
-            author = _article_data(soup).get("author")
-            if isinstance(author, list) and author:
-                author = author[0]
-            if isinstance(author, dict) and author.get("name"):
-                return str(author["name"]).strip()
+            ld_author = ld_field(news_article_ld(soup, types=BLOG_ARTICLE_TYPES), "author")
+            if ld_author:
+                return ld_author
 
         return result.metadata.get("author") or "Sin Autor"
 
     def get_category(self, result: CrawlResult) -> str:
-        html = result.cleaned_html or result.html
-        if html:
-            soup = BeautifulSoup(html, HTML_PARSER)
-            category_el = soup.select_one('.post-data a[rel~="category"]')
-            if category_el and category_el.get_text(strip=True):
-                return category_el.get_text(" ", strip=True).lstrip("*").strip()
+        soup = soup_from_result(result)
+        if soup:
+            category = first_text(soup, ['.post-data a[rel~="category"]'])
+            if category:
+                return category.lstrip("*").strip()
 
-            section = _article_data(soup).get("articleSection")
-            if isinstance(section, list) and section:
-                section = section[0]
-            if section:
-                return str(section).lstrip("*").strip()
+            ld_section = ld_field(news_article_ld(soup, types=BLOG_ARTICLE_TYPES), "articleSection")
+            if ld_section:
+                return ld_section.lstrip("*").strip()
 
             post_category = _post_category(soup)
             if post_category:
@@ -153,17 +114,14 @@ class RemolachaProvider(BaseNewsProvider):
         return result.metadata.get("category") or "Sin Categoría"
 
     def get_date(self, result: CrawlResult) -> str:
-        for html in (result.html, result.cleaned_html):
-            if not html:
-                continue
-            soup = BeautifulSoup(html, HTML_PARSER)
-            meta_date = soup.select_one('meta[property="article:published_time"]')
-            if meta_date and meta_date.get("content"):
-                return meta_date["content"].strip()
-
-            published = _article_data(soup).get("datePublished")
+        for soup in iter_html_variants(result):
+            published = meta_content(soup, "article:published_time")
             if published:
-                return str(published).strip()
+                return published
+
+            ld_date = ld_field(news_article_ld(soup, types=BLOG_ARTICLE_TYPES), "datePublished")
+            if ld_date:
+                return ld_date
 
             timestamp_date = _timestamp_date(soup)
             if timestamp_date:
@@ -176,37 +134,46 @@ class RemolachaProvider(BaseNewsProvider):
         )
 
     def get_title(self, result: CrawlResult) -> str:
-        html = result.cleaned_html or result.html
-        if html:
-            soup = BeautifulSoup(html, HTML_PARSER)
-            title_el = soup.select_one("h1.post-title")
-            if title_el and title_el.get_text(strip=True):
-                return title_el.get_text(" ", strip=True)
+        soup = soup_from_result(result)
+        if soup:
+            title = first_text(soup, ["h1.post-title"])
+            if title:
+                return title
 
-            meta_title = soup.select_one('meta[property="og:title"]')
-            if meta_title and meta_title.get("content"):
-                return meta_title["content"].strip()
+            og_title = meta_content(soup, "og:title")
+            if og_title:
+                return og_title
 
-            headline = _article_data(soup).get("headline")
+            headline = ld_field(news_article_ld(soup, types=BLOG_ARTICLE_TYPES), "headline")
             if headline:
-                return str(headline).strip()
+                return headline
 
         return result.metadata.get("title") or "Sin Título"
 
     def get_content(self, result: CrawlResult) -> str:
-        html = result.cleaned_html or result.html
-        if html:
-            soup = BeautifulSoup(html, HTML_PARSER)
+        soup = soup_from_result(result)
+        if soup:
             content_el = soup.select_one("div.post-entry")
             if content_el:
-                for junk in content_el.select(
-                    ".navigation, .comments-link, #respond, .comments-fb, "
-                    ".breadcrumb-list, #widgets, #remo-overlay, "
-                    'a[href*="#more-"], script, style'
-                ):
-                    junk.decompose()
+                decompose_junk(
+                    content_el,
+                    (
+                        ".navigation, .comments-link, #respond, .comments-fb, "
+                        ".breadcrumb-list, #widgets, #remo-overlay, "
+                        'a[href*="#more-"], script, style'
+                    ),
+                )
 
-                content = _extract_blocks(content_el)
+                content = extract_blocks(
+                    content_el,
+                    junk_phrases=(
+                        "(Seguir leyendo",
+                        "Read more ›",
+                        "⬆️(clic en foto pa’ ver el video)",
+                        "Dímelo, ¿qué opinas?",
+                        "Tú sí eres “ponemano”",
+                    ),
+                )
                 if content:
                     return content
                 return content_el.get_text("\n", strip=True)

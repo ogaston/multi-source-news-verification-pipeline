@@ -19,7 +19,6 @@ class RawArticle(Base):
             "article_key",
             unique=True,
             postgresql_where=text("article_key IS NOT NULL"),
-            sqlite_where=text("article_key IS NOT NULL"),
         ),
     )
 

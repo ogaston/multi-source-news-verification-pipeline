@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 import unicodedata
 
 ALLOWED_CATEGORIES = (
@@ -23,6 +24,20 @@ def _fold_key(value: str) -> str:
 
 
 _CATEGORY_LOOKUP = {_fold_key(name): name for name in ALLOWED_CATEGORIES}
+_CATEGORY_NAMES = {
+    re.sub(r"[^a-z0-9]+", "-", _fold_key(name)).strip("-"): name
+    for name in ALLOWED_CATEGORIES
+}
+
+
+def category_slug(category: str) -> str:
+    normalized = unicodedata.normalize("NFKD", category or "")
+    ascii_category = normalized.encode("ascii", "ignore").decode("ascii")
+    return re.sub(r"[^a-z0-9]+", "-", ascii_category.casefold()).strip("-")
+
+
+def category_name(slug: str) -> str | None:
+    return _CATEGORY_NAMES.get(slug)
 
 
 def normalize_category(value: str | None) -> str:

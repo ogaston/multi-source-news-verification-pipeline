@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from datetime import datetime, timedelta, timezone
+from typing import TypeVar
 
 from common.config import (
     DEFAULT_DAYS_BACK,
@@ -37,6 +39,57 @@ from mcp_app.utils import (
     format_verified_search,
 )
 
+_Retrieved = TypeVar("_Retrieved")
+_Filtered = TypeVar("_Filtered")
+
+
+def _clamp_limit(limit: int) -> int:
+    return min(MAX_QUERY_LIMIT, max(1, limit))
+
+
+def _clamp_days_back(days_back: int) -> int:
+    return min(MAX_DAYS_BACK, max(0, days_back))
+
+
+def _date_threshold(days_back: int) -> datetime:
+    return datetime.now(timezone.utc) - timedelta(days=days_back)
+
+
+def _run_semantic_search(
+    *,
+    query: str,
+    limit: int,
+    days_back: int,
+    result_label: str,
+    retrieve: Callable[[str, int], list[_Retrieved]],
+    filter_results: Callable[
+        [list[_Retrieved], datetime, int], list[_Filtered]
+    ],
+    format_results: Callable[[str, list[_Filtered]], str],
+    scope_filter: str | None = None,
+) -> str:
+    query = (query or "")[:MAX_TOPIC_LENGTH]
+    limit = _clamp_limit(limit)
+    days_back = _clamp_days_back(days_back)
+    threshold = _date_threshold(days_back)
+    n_results = max(QUERY_CANDIDATE_MIN, limit * QUERY_CANDIDATE_MULTIPLIER)
+    results = retrieve(query, n_results)
+
+    if not results:
+        return f"No semantically relevant {result_label} found for query: '{query}'."
+
+    filtered = filter_results(results, threshold, limit)
+    if not filtered:
+        scope = f"last {days_back} days"
+        if scope_filter:
+            scope += f", {scope_filter}"
+        return (
+            f"No semantically relevant {result_label} found for query: "
+            f"'{query}' ({scope})."
+        )
+
+    return format_results(query, filtered)
+
 
 def run_search_articles(
     query: str,
@@ -44,31 +97,21 @@ def run_search_articles(
     days_back: int = DEFAULT_DAYS_BACK,
     source: NewsSource | None = None,
 ) -> str:
-    query = (query or "")[:MAX_TOPIC_LENGTH]
-    limit = min(MAX_QUERY_LIMIT, max(1, limit))
-    days_back = min(MAX_DAYS_BACK, max(0, days_back))
-    date_threshold = datetime.now(timezone.utc) - timedelta(days=days_back)
-
-    n_results = max(QUERY_CANDIDATE_MIN, limit * QUERY_CANDIDATE_MULTIPLIER)
-    chunks = retrieve_chunks(query, n_results=n_results)
-
-    if not chunks:
-        return f"No semantically relevant news found for query: '{query}'."
-
-    filtered = filter_ranked_chunks(
-        chunks,
-        date_threshold=date_threshold,
-        source=source,
+    return _run_semantic_search(
+        query=query,
         limit=limit,
+        days_back=days_back,
+        result_label="news",
+        retrieve=retrieve_chunks,
+        filter_results=lambda chunks, threshold, result_limit: filter_ranked_chunks(
+            chunks,
+            date_threshold=threshold,
+            source=source,
+            limit=result_limit,
+        ),
+        format_results=format_rag_context,
+        scope_filter=f"source={source.value}" if source else None,
     )
-
-    if not filtered:
-        scope = f"last {days_back} days"
-        if source:
-            scope += f", source={source.value}"
-        return f"No semantically relevant news found for query: '{query}' ({scope})."
-
-    return format_rag_context(query, filtered)
 
 
 def run_search_story(
@@ -77,32 +120,22 @@ def run_search_story(
     days_back: int = DEFAULT_DAYS_BACK,
     source: NewsSource | None = None,
 ) -> str:
-    query = (query or "")[:MAX_TOPIC_LENGTH]
-    limit = min(MAX_QUERY_LIMIT, max(1, limit))
-    days_back = min(MAX_DAYS_BACK, max(0, days_back))
-    date_threshold = datetime.now(timezone.utc) - timedelta(days=days_back)
-
-    n_results = max(QUERY_CANDIDATE_MIN, limit * QUERY_CANDIDATE_MULTIPLIER)
-    stories = retrieve_stories(query, n_results=n_results)
-
-    if not stories:
-        return f"No semantically relevant stories found for query: '{query}'."
-
-    filtered = filter_ranked_stories(
-        stories,
-        fetch_articles=fetch_cluster_articles,
-        date_threshold=date_threshold,
-        source=source,
+    return _run_semantic_search(
+        query=query,
         limit=limit,
+        days_back=days_back,
+        result_label="stories",
+        retrieve=retrieve_stories,
+        filter_results=lambda stories, threshold, result_limit: filter_ranked_stories(
+            stories,
+            fetch_articles=fetch_cluster_articles,
+            date_threshold=threshold,
+            source=source,
+            limit=result_limit,
+        ),
+        format_results=format_story_context,
+        scope_filter=f"source={source.value}" if source else None,
     )
-
-    if not filtered:
-        scope = f"last {days_back} days"
-        if source:
-            scope += f", source={source.value}"
-        return f"No semantically relevant stories found for query: '{query}' ({scope})."
-
-    return format_story_context(query, filtered)
 
 
 def run_list_stories(
@@ -110,9 +143,9 @@ def run_list_stories(
     limit: int = DEFAULT_LIST_STORIES_LIMIT,
     source: NewsSource | None = None,
 ) -> str:
-    limit = min(MAX_QUERY_LIMIT, max(1, limit))
-    days_back = min(MAX_DAYS_BACK, max(0, days_back))
-    date_threshold = datetime.now(timezone.utc) - timedelta(days=days_back)
+    limit = _clamp_limit(limit)
+    days_back = _clamp_days_back(days_back)
+    date_threshold = _date_threshold(days_back)
 
     clusters = fetch_recent_clusters(
         date_threshold.isoformat(),
@@ -156,9 +189,9 @@ def run_list_verified_articles(
     limit: int = DEFAULT_LIST_STORIES_LIMIT,
     status: str | None = None,
 ) -> str:
-    limit = min(MAX_QUERY_LIMIT, max(1, limit))
-    days_back = min(MAX_DAYS_BACK, max(0, days_back))
-    date_threshold = datetime.now(timezone.utc) - timedelta(days=days_back)
+    limit = _clamp_limit(limit)
+    days_back = _clamp_days_back(days_back)
+    date_threshold = _date_threshold(days_back)
     status = (status or "").strip() or None
 
     articles = fetch_verified_articles(
@@ -194,33 +227,20 @@ def run_search_verified_articles(
     days_back: int = DEFAULT_DAYS_BACK,
     status: str | None = None,
 ) -> str:
-    query = (query or "")[:MAX_TOPIC_LENGTH]
-    limit = min(MAX_QUERY_LIMIT, max(1, limit))
-    days_back = min(MAX_DAYS_BACK, max(0, days_back))
-    date_threshold = datetime.now(timezone.utc) - timedelta(days=days_back)
     status = (status or "").strip() or None
-
-    n_results = max(QUERY_CANDIDATE_MIN, limit * QUERY_CANDIDATE_MULTIPLIER)
-    hits = retrieve_verified(query, n_results=n_results)
-
-    if not hits:
-        return f"No semantically relevant verified articles found for query: '{query}'."
-
-    filtered = filter_ranked_verified(
-        hits,
-        fetch_article=fetch_verified_article,
-        date_threshold=date_threshold,
-        status=status,
+    return _run_semantic_search(
+        query=query,
         limit=limit,
+        days_back=days_back,
+        result_label="verified articles",
+        retrieve=retrieve_verified,
+        filter_results=lambda hits, threshold, result_limit: filter_ranked_verified(
+            hits,
+            fetch_article=fetch_verified_article,
+            date_threshold=threshold,
+            status=status,
+            limit=result_limit,
+        ),
+        format_results=format_verified_search,
+        scope_filter=f"status={status}" if status else None,
     )
-
-    if not filtered:
-        scope = f"last {days_back} days"
-        if status:
-            scope += f", status={status}"
-        return (
-            f"No semantically relevant verified articles found for query: "
-            f"'{query}' ({scope})."
-        )
-
-    return format_verified_search(query, filtered)

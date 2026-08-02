@@ -5,10 +5,7 @@ from __future__ import annotations
 import json
 import logging
 import re
-import time
 from typing import TypedDict
-
-import httpx
 
 from common.config import (
     CLUSTER_DESC_MAX_CHARS,
@@ -16,6 +13,7 @@ from common.config import (
     DEEPINFRA_BASE_URL,
     DEEPINFRA_MODEL,
 )
+from common.deepinfra_chat import chat_completion
 from common.taxonomy import (
     ALLOWED_CATEGORIES,
     DEFAULT_CATEGORY,
@@ -29,7 +27,6 @@ logger = logging.getLogger(__name__)
 CLUSTER_LLM_CHAT_URL = f"{DEEPINFRA_BASE_URL}/chat/completions"
 CLUSTER_DESC_MAX_TOKENS = 1024
 CLUSTER_LLM_MAX_RETRIES = 3
-_RETRY_WAIT_RE = re.compile(r"try again in ([\d.]+)\s*s", re.IGNORECASE)
 _JSON_FENCE_RE = re.compile(
     r"```(?:json)?\s*(\{.*?\})\s*```", re.DOTALL | re.IGNORECASE
 )
@@ -164,20 +161,15 @@ def parse_cluster_metadata(
         return {
             "description": description,
             "category": normalize_category(
-                str(data.get("category") or "") if data.get("category") is not None else ""
+                str(data.get("category") or "")
+                if data.get("category") is not None
+                else ""
             ),
             "place": normalize_place(
                 str(data.get("place") or "") if data.get("place") is not None else ""
             ),
         }
     return None
-
-
-def _retry_wait_seconds(response: httpx.Response, attempt: int) -> float:
-    match = _RETRY_WAIT_RE.search(response.text or "")
-    if match:
-        return float(match.group(1)) + 0.5
-    return 2.0 * (2 ** (attempt - 1))
 
 
 def call_cluster_llm(
@@ -194,82 +186,26 @@ def call_cluster_llm(
         raise RuntimeError("DEEPINFRA_API_KEY is not set")
 
     print(f"[cluster-llm] calling {model}...", flush=True)
-    payload = {
-        "model": model,
-        "temperature": 0,
-        "max_tokens": CLUSTER_DESC_MAX_TOKENS,
-        # Qwen3.x defaults to thinking mode; keep responses short JSON only.
-        "chat_template_kwargs": {"enable_thinking": False},
-        "messages": [
+    text = chat_completion(
+        [
             {"role": "system", "content": _system_prompt(max_chars)},
             {"role": "user", "content": user_prompt},
         ],
-    }
-    headers = {
-        "Authorization": f"Bearer {key}",
-        "Content-Type": "application/json",
-    }
-
-    last_error: Exception | None = None
-    with httpx.Client(timeout=timeout) as client:
-        for attempt in range(1, CLUSTER_LLM_MAX_RETRIES + 1):
-            try:
-                response = client.post(
-                    CLUSTER_LLM_CHAT_URL, json=payload, headers=headers
-                )
-                if response.status_code == 429 and attempt < CLUSTER_LLM_MAX_RETRIES:
-                    wait = _retry_wait_seconds(response, attempt)
-                    print(
-                        f"[cluster-llm] rate limit; retrying in {wait:.1f}s "
-                        f"(attempt {attempt}/{CLUSTER_LLM_MAX_RETRIES})",
-                        flush=True,
-                    )
-                    logger.warning(
-                        "DeepInfra rate limit; retrying in %.1fs (attempt %s/%s)",
-                        wait,
-                        attempt,
-                        CLUSTER_LLM_MAX_RETRIES,
-                    )
-                    time.sleep(wait)
-                    continue
-                response.raise_for_status()
-                data = response.json()
-                choices = data.get("choices") or []
-                if not choices:
-                    print("[cluster-llm] empty choices in response", flush=True)
-                    return ""
-                message = choices[0].get("message") or {}
-                content = message.get("content") or ""
-                text = content.strip()
-                print(
-                    f"[cluster-llm] got {len(text)} chars "
-                    f"(attempt {attempt}/{CLUSTER_LLM_MAX_RETRIES})",
-                    flush=True,
-                )
-                return text
-            except httpx.HTTPStatusError as exc:
-                last_error = exc
-                if (
-                    exc.response is not None
-                    and exc.response.status_code == 429
-                    and attempt < CLUSTER_LLM_MAX_RETRIES
-                ):
-                    wait = _retry_wait_seconds(exc.response, attempt)
-                    print(
-                        f"[cluster-llm] HTTP 429; retrying in {wait:.1f}s "
-                        f"(attempt {attempt}/{CLUSTER_LLM_MAX_RETRIES})",
-                        flush=True,
-                    )
-                    time.sleep(wait)
-                    continue
-                raise
-            except httpx.HTTPError as exc:
-                last_error = exc
-                raise
-
-    if last_error is not None:
-        raise last_error
-    return ""
+        api_key=key,
+        model=model,
+        timeout=timeout,
+        max_retries=CLUSTER_LLM_MAX_RETRIES,
+        base_url=DEEPINFRA_BASE_URL,
+        temperature=0,
+        max_tokens=CLUSTER_DESC_MAX_TOKENS,
+        # Qwen3.x defaults to thinking mode; keep responses short JSON only.
+        chat_template_kwargs={"enable_thinking": False},
+    )
+    if not text:
+        print("[cluster-llm] empty choices in response", flush=True)
+        return ""
+    print(f"[cluster-llm] got {len(text)} chars", flush=True)
+    return text
 
 
 def describe_cluster(
@@ -290,7 +226,7 @@ def describe_cluster(
 
     title = (articles[0].get("title") or "").strip() or "(sin título)"
     print(
-        f"[describe] {len(articles)} articles, lead={title[:80]!r}",
+        f"[describe] {len(articles)} articles, lead={title[:100]!r}...",
         flush=True,
     )
     prompt = build_cluster_prompt(articles, max_chars=max_chars)

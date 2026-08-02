@@ -25,6 +25,7 @@ from common.config import (
 )
 from common.sources import NewsSource
 from mcp_app.auth import load_auth_from_env
+from mcp_app.landing import render_landing_html
 from mcp_app.prompt import run_get_last_week
 from mcp_app.resources import (
     get_source_frontpage,
@@ -44,12 +45,11 @@ from mcp_app.tools import (
 MCP_HOST = os.environ.get("MCP_HOST", "127.0.0.1")
 MCP_PORT = int(os.environ.get("MCP_PORT", "7000"))
 MCP_TRANSPORT = os.environ.get("MCP_TRANSPORT", "stdio")
-LANDING_HTML_PATH = Path(__file__).resolve().parent / "static" / "index.html"
 
 _auth_settings, _token_verifier = load_auth_from_env()
 
 mcp = FastMCP(
-    "dominican_news_repository",
+    "multi-source-news-verification-api",
     host=MCP_HOST,
     port=MCP_PORT,
     auth=_auth_settings,
@@ -59,7 +59,7 @@ mcp = FastMCP(
 
 @mcp.custom_route("/", methods=["GET"])
 async def landing_page(_request: Request) -> HTMLResponse:
-    return HTMLResponse(LANDING_HTML_PATH.read_text(encoding="utf-8"))
+    return HTMLResponse(render_landing_html())
 
 
 @mcp.tool(

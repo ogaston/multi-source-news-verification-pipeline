@@ -1,1 +1,1 @@
-"""SQLAdmin UI for browsing pipeline SQLite tables."""
+"""SQLAdmin UI for browsing pipeline PostgreSQL tables."""

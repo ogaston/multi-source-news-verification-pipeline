@@ -1,40 +1,52 @@
-from bs4 import BeautifulSoup
 from crawl4ai.models import CrawlResult
 
 from common.sources import NewsSource
-from ingestion.providers.base import BaseNewsProvider
+from ingestion.utils.base import BaseNewsProvider
+from ingestion.utils.html_utils import (
+    first_text,
+    iter_html_variants,
+    meta_content,
+    soup_from_result,
+)
 
 
 class SomosPuebloProvider(BaseNewsProvider):
     base_url = "https://somospueblo.com"
     source = NewsSource.SOMOS_PUEBLO
-    css_selector = ".wpb_wrapper"
+    # TagDiv puts title/author/date outside the content block; crawl4ai's
+    # css_selector replaces result.html, so scope to the whole article.
+    css_selector = "article"
 
     def get_author(self, result: CrawlResult) -> str:
-        html = result.cleaned_html or result.html
-        if not html:
-            return result.metadata.get("author") or "Sin Autor"
+        for soup in iter_html_variants(result):
+            author = first_text(soup, ["a.tdb-author-name"])
+            if author:
+                return author
 
-        soup = BeautifulSoup(html, "html.parser")
-        author_el = soup.select_one("a.tdb-author-name")
-        if author_el and author_el.get_text(strip=True):
-            return author_el.get_text(strip=True)
+            author_meta = meta_content(soup, "author")
+            if author_meta:
+                return author_meta
 
         return result.metadata.get("author") or "Sin Autor"
 
     def get_category(self, result: CrawlResult) -> str:
-        html = result.cleaned_html or result.html
-        if html:
-            soup = BeautifulSoup(html, "html.parser")
-            category_el = soup.select_one("a.tdb-entry-category")
-            if category_el:
-                return category_el.get_text(strip=True)
+        for soup in iter_html_variants(result):
+            category = first_text(soup, ["a.tdb-entry-category"])
+            if category:
+                return category
+
+            section = meta_content(soup, "article:section")
+            if section:
+                return section
+
         return result.metadata.get("category") or "Sin Categoría"
 
     def get_date(self, result: CrawlResult) -> str:
-        html = result.cleaned_html or result.html
-        if html:
-            soup = BeautifulSoup(html, "html.parser")
+        for soup in iter_html_variants(result):
+            published = meta_content(soup, "article:published_time")
+            if published:
+                return published
+
             date_el = soup.select_one("time.entry-date, time.td-module-date")
             if date_el:
                 dt = date_el.get("datetime")
@@ -44,6 +56,10 @@ class SomosPuebloProvider(BaseNewsProvider):
                 if text:
                     return text
 
+            og_date = meta_content(soup, "og:article:published_time")
+            if og_date:
+                return og_date
+
         return (
             result.metadata.get("date")
             or result.metadata.get("og:article:published_time")
@@ -51,18 +67,20 @@ class SomosPuebloProvider(BaseNewsProvider):
         )
 
     def get_title(self, result: CrawlResult) -> str:
-        html = result.cleaned_html or result.html
-        if html:
-            soup = BeautifulSoup(html, "html.parser")
-            title_el = soup.select_one("h1.tdb-title-text")
-            if title_el:
-                return title_el.get_text(strip=True)
+        for soup in iter_html_variants(result):
+            title = first_text(soup, ["h1.tdb-title-text"])
+            if title:
+                return title
+
+            og_title = meta_content(soup, "og:title")
+            if og_title:
+                return og_title
+
         return result.metadata.get("title") or "Sin Título"
 
     def get_content(self, result: CrawlResult) -> str:
-        html = result.cleaned_html or result.html
-        if html:
-            soup = BeautifulSoup(html, "html.parser")
+        soup = soup_from_result(result)
+        if soup:
             content_el = soup.select_one("div.tdb_single_content")
             if content_el:
                 return content_el.get_text(strip=True).replace("- Anuncio -", "")

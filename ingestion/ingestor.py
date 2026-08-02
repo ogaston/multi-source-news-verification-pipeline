@@ -64,7 +64,7 @@ async def scrape_news(
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Discover and ingest Dominican news into SQLite + Chroma."
+        description="Discover and ingest Dominican news into PostgreSQL + Chroma."
     )
     parser.add_argument(
         "--source",

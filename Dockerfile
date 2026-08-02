@@ -1,7 +1,7 @@
 # Oracle Always Free Ampere is linux/arm64. On the VM (native ARM), just:
 #   docker compose build
 # Cross-build from another arch:
-#   docker build --platform linux/arm64 -t news-pipeline .
+#   docker build --platform linux/arm64 -t ojo-critico .
 FROM python:3.12-slim-bookworm
 
 ENV PYTHONDONTWRITEBYTECODE=1 \

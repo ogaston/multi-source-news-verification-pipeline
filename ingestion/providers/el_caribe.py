@@ -1,52 +1,20 @@
-import json
 import re
-from collections.abc import Iterator
 from urllib.parse import urlparse
 
-from bs4 import BeautifulSoup
 from crawl4ai.models import CrawlResult
 
 from common.sources import NewsSource
-from ingestion.providers.base import BaseNewsProvider
-
-HTML_PARSER = "html.parser"
-
-
-def _json_ld_nodes(soup: BeautifulSoup) -> Iterator[dict]:
-    for script in soup.select('script[type="application/ld+json"]'):
-        try:
-            data = json.loads(script.string or script.get_text() or "")
-        except (json.JSONDecodeError, TypeError):
-            continue
-        items = data if isinstance(data, list) else [data]
-        for item in items:
-            if not isinstance(item, dict):
-                continue
-            graph = item.get("@graph")
-            if isinstance(graph, list):
-                yield from (node for node in graph if isinstance(node, dict))
-            yield item
-
-
-def _news_article(soup: BeautifulSoup) -> dict:
-    for node in _json_ld_nodes(soup):
-        types = node.get("@type", [])
-        if isinstance(types, str):
-            types = [types]
-        if any(kind in {"Article", "NewsArticle"} for kind in types):
-            return node
-    return {}
-
-
-def _extract_blocks(container, selectors: str) -> str:
-    blocks = []
-    for element in container.select(selectors):
-        text = element.get_text(" ", strip=True)
-        if text and not text.startswith(
-            ("Le recomendamos leer", "Escuchar artículo")
-        ):
-            blocks.append(text)
-    return "\n\n".join(blocks)
+from ingestion.utils.base import BaseNewsProvider
+from ingestion.utils.html_utils import (
+    decompose_junk,
+    extract_blocks,
+    first_text,
+    iter_html_variants,
+    ld_field,
+    meta_content,
+    news_article_ld,
+    soup_from_result,
+)
 
 
 class ElCaribeProvider(BaseNewsProvider):
@@ -55,57 +23,48 @@ class ElCaribeProvider(BaseNewsProvider):
     css_selector = "article.type-post.status-publish"
 
     def get_author(self, result: CrawlResult) -> str:
-        html = result.cleaned_html or result.html
-        if html:
-            soup = BeautifulSoup(html, HTML_PARSER)
-            author_el = soup.select_one(".author.vcard a.url.fn.n")
-            if author_el and author_el.get_text(strip=True):
-                return author_el.get_text(" ", strip=True)
+        soup = soup_from_result(result)
+        if soup:
+            author = first_text(soup, [".author.vcard a.url.fn.n"])
+            if author:
+                return author
 
-            meta_author = soup.select_one('meta[name="author"]')
-            if meta_author and meta_author.get("content"):
-                return meta_author["content"].strip()
+            author_meta = meta_content(soup, "author")
+            if author_meta:
+                return author_meta
 
-            author = _news_article(soup).get("author")
-            if isinstance(author, list) and author:
-                author = author[0]
-            if isinstance(author, dict) and author.get("name"):
-                return str(author["name"]).strip()
+            ld_author = ld_field(news_article_ld(soup), "author")
+            if ld_author:
+                return ld_author
 
         return result.metadata.get("author") or "Sin Autor"
 
     def get_category(self, result: CrawlResult) -> str:
-        html = result.cleaned_html or result.html
-        if html:
-            soup = BeautifulSoup(html, HTML_PARSER)
-            category_el = soup.select_one('.cat-links a[rel~="category"]')
-            if category_el and category_el.get_text(strip=True):
-                return category_el.get_text(" ", strip=True)
+        soup = soup_from_result(result)
+        if soup:
+            category = first_text(soup, ['.cat-links a[rel~="category"]'])
+            if category:
+                return category
 
-            section = _news_article(soup).get("articleSection")
-            if isinstance(section, list) and section:
-                section = section[0]
-            if section:
-                return str(section).strip()
+            ld_section = ld_field(news_article_ld(soup), "articleSection")
+            if ld_section:
+                return ld_section
 
         return result.metadata.get("category") or "Sin Categoría"
 
     def get_date(self, result: CrawlResult) -> str:
-        for html in (result.html, result.cleaned_html):
-            if not html:
-                continue
-            soup = BeautifulSoup(html, HTML_PARSER)
-            meta_date = soup.select_one('meta[property="article:published_time"]')
-            if meta_date and meta_date.get("content"):
-                return meta_date["content"].strip()
+        for soup in iter_html_variants(result):
+            published = meta_content(soup, "article:published_time")
+            if published:
+                return published
 
             date_el = soup.select_one("time.entry-date.published[datetime]")
             if date_el and date_el.get("datetime"):
                 return date_el["datetime"].strip()
 
-            published = _news_article(soup).get("datePublished")
-            if published:
-                return str(published).strip()
+            ld_date = ld_field(news_article_ld(soup), "datePublished")
+            if ld_date:
+                return ld_date
 
         return (
             result.metadata.get("date")
@@ -114,38 +73,39 @@ class ElCaribeProvider(BaseNewsProvider):
         )
 
     def get_title(self, result: CrawlResult) -> str:
-        html = result.cleaned_html or result.html
-        if html:
-            soup = BeautifulSoup(html, HTML_PARSER)
-            title_el = soup.select_one("h1.entry-title")
-            if title_el and title_el.get_text(strip=True):
-                return title_el.get_text(" ", strip=True)
+        soup = soup_from_result(result)
+        if soup:
+            title = first_text(soup, ["h1.entry-title"])
+            if title:
+                return title
 
-            meta_title = soup.select_one('meta[property="og:title"]')
-            if meta_title and meta_title.get("content"):
-                return meta_title["content"].strip()
+            og_title = meta_content(soup, "og:title")
+            if og_title:
+                return og_title
 
-            headline = _news_article(soup).get("headline")
+            headline = ld_field(news_article_ld(soup), "headline")
             if headline:
-                return str(headline).strip()
+                return headline
 
         return result.metadata.get("title") or "Sin Título"
 
     def get_content(self, result: CrawlResult) -> str:
-        html = result.cleaned_html or result.html
-        if html:
-            soup = BeautifulSoup(html, HTML_PARSER)
+        soup = soup_from_result(result)
+        if soup:
             content_el = soup.select_one(".entry-content > .content")
             if content_el:
-                for junk in content_el.select(
-                    ".mmc_ads, .entry-resumen, .elcaribe-simple-player, "
-                    ".share, .newsletter-block, script, style, iframe, aside"
-                ):
-                    junk.decompose()
-
-                content = _extract_blocks(
+                decompose_junk(
                     content_el,
-                    "p.wp-block-paragraph, p, h2, h3, blockquote, li"
+                    (
+                        ".mmc_ads, .entry-resumen, .elcaribe-simple-player, "
+                        ".share, .newsletter-block, script, style, iframe, aside"
+                    ),
+                )
+
+                content = extract_blocks(
+                    content_el,
+                    "p.wp-block-paragraph, p, h2, h3, blockquote, li",
+                    junk_prefixes=("Le recomendamos leer", "Escuchar artículo"),
                 )
                 if content:
                     return content

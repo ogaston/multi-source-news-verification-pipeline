@@ -1,7 +1,7 @@
 services:
   postgres:
     image: postgres:16-alpine
-    container_name: news-pipeline-postgres
+    container_name: ojo-critico-postgres
     restart: unless-stopped
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-news}
@@ -21,8 +21,8 @@ services:
   # One-shot schema migration before app services start.
   migrate:
     build: .
-    image: news-pipeline:latest
-    container_name: news-pipeline-migrate
+    image: ojo-critico:latest
+    container_name: ojo-critico-migrate
     env_file:
       - .env
     environment:
@@ -36,8 +36,8 @@ services:
   # Always-on MCP (streamable HTTP) behind Traefik
   mcp:
     build: .
-    image: news-pipeline:latest
-    container_name: news-pipeline-mcp
+    image: ojo-critico:latest
+    container_name: ojo-critico-mcp
     restart: unless-stopped
     env_file:
       - .env
@@ -49,7 +49,7 @@ services:
       MCP_HOST: 0.0.0.0
       MCP_PORT: ${MCP_PORT:-7000}
       MCP_TRANSPORT: streamable-http
-      MCP_API_KEY: ${MCP_API_KEY:-5cfb757b93c423b4bd8fcc6c65a5139304978503d5a1be38}
+      MCP_API_KEY: ${MCP_API_KEY}
     volumes:
       - pipeline-data:/data
     depends_on:
@@ -63,9 +63,9 @@ services:
     labels:
       - traefik.enable=true
       - traefik.docker.network=proxy
-      - traefik.http.routers.news-mcp.rule=Host(`${MCP_DOMAIN}`)
-      - traefik.http.routers.news-mcp.entrypoints=web
-      - traefik.http.services.news-mcp.loadbalancer.server.port=${MCP_PORT:-7000}
+      - traefik.http.routers.ojo-critico-mcp.rule=Host(`${MCP_DOMAIN}`)
+      - traefik.http.routers.ojo-critico-mcp.entrypoints=web
+      - traefik.http.services.ojo-critico-mcp.loadbalancer.server.port=${MCP_PORT:-7000}
     command: ["python", "-m", "mcp_app.server"]
     healthcheck:
       test:
@@ -78,19 +78,17 @@ services:
       retries: 5
       start_period: 30s
 
-  # Always-on scheduler: production cadence via supercronic (see deploy/crontab)
+  # Always-on scheduler: ingest every 3h; preprocess + story_audit every 3 days (see deploy/crontab)
   # Schema:  docker compose run --rm migrate  (also runs automatically on `up`)
-  # Data:    docker compose run --rm scheduler python -m scripts.migrate_sqlite_to_postgres
   scheduler:
     build: .
-    image: news-pipeline:latest
-    container_name: news-pipeline-scheduler
+    image: ojo-critico:latest
+    container_name: ojo-critico-scheduler
     restart: unless-stopped
     env_file:
       - .env
     environment:
       DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-news}:${POSTGRES_PASSWORD:-news}@postgres:5432/${POSTGRES_DB:-news}
-      DB_NAME: /data/dominican_news_repository.db
       CHROMA_PATH: /data/chroma_db
       DATA_DIR: /data/debug_json
       ARTICLE_IMAGES_DIR: /data/article_images
@@ -111,8 +109,8 @@ services:
     build:
       context: .
       dockerfile: admin/Dockerfile
-    image: news-pipeline-admin:latest
-    container_name: news-pipeline-admin
+    image: ojo-critico-admin:latest
+    container_name: ojo-critico-admin
     restart: unless-stopped
     env_file:
       - .env
@@ -134,9 +132,9 @@ services:
     labels:
       - traefik.enable=true
       - traefik.docker.network=proxy
-      - traefik.http.routers.news-admin.rule=Host(`${ADMIN_DOMAIN}`)
-      - traefik.http.routers.news-admin.entrypoints=web
-      - traefik.http.services.news-admin.loadbalancer.server.port=${ADMIN_PORT:-7001}
+      - traefik.http.routers.ojo-critico-admin.rule=Host(`${ADMIN_DOMAIN}`)
+      - traefik.http.routers.ojo-critico-admin.entrypoints=web
+      - traefik.http.services.ojo-critico-admin.loadbalancer.server.port=${ADMIN_PORT:-7001}
     command:
       [
         "uvicorn",
@@ -162,15 +160,15 @@ services:
     build:
       context: .
       dockerfile: api/Dockerfile
-    image: news-pipeline-api:latest
-    container_name: news-pipeline-api
+    image: ojo-critico-api:latest
+    container_name: ojo-critico-api
     restart: unless-stopped
     env_file:
       - .env
     environment:
       DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-news}:${POSTGRES_PASSWORD:-news}@postgres:5432/${POSTGRES_DB:-news}
       API_PORT: ${API_PORT:-7002}
-      API_USE_DB: ${API_USE_DB:-true}
+      API_KEY: ${API_KEY}
       WEBSITE_CORS_ORIGINS: ${WEBSITE_CORS_ORIGINS:-}
       ARTICLE_IMAGES_DIR: /data/article_images
       PUBLIC_API_URL: ${PUBLIC_API_URL:-http://localhost:7002}
@@ -187,9 +185,9 @@ services:
     labels:
       - traefik.enable=true
       - traefik.docker.network=proxy
-      - traefik.http.routers.news-api.rule=Host(`${API_DOMAIN}`)
-      - traefik.http.routers.news-api.entrypoints=web
-      - traefik.http.services.news-api.loadbalancer.server.port=${API_PORT:-7002}
+      - traefik.http.routers.ojo-critico-api.rule=Host(`${API_DOMAIN}`)
+      - traefik.http.routers.ojo-critico-api.entrypoints=web
+      - traefik.http.services.ojo-critico-api.loadbalancer.server.port=${API_PORT:-7002}
     command:
       [
         "uvicorn",
@@ -217,12 +215,13 @@ services:
       args:
         WEBSITE_API_URL: ${WEBSITE_API_URL:-http://api:7002}
         WEBSITE_URL: ${WEBSITE_URL:-https://news-website.ogaston.com}
-    image: news-pipeline-website:latest
-    container_name: news-pipeline-website
+    image: ojo-critico-website:latest
+    container_name: ojo-critico-website
     restart: unless-stopped
     environment:
       PORT: ${WEBSITE_PORT:-7003}
       WEBSITE_API_URL: ${WEBSITE_API_URL:-http://api:7002}
+      WEBSITE_API_KEY: ${WEBSITE_API_KEY}
       WEBSITE_URL: ${WEBSITE_URL:-https://news-website.ogaston.com}
     depends_on:
       api:
@@ -233,9 +232,9 @@ services:
     labels:
       - traefik.enable=true
       - traefik.docker.network=proxy
-      - traefik.http.routers.news-website.rule=Host(`${WEBSITE_DOMAIN}`)
-      - traefik.http.routers.news-website.entrypoints=web
-      - traefik.http.services.news-website.loadbalancer.server.port=${WEBSITE_PORT:-7003}
+      - traefik.http.routers.ojo-critico-website.rule=Host(`${WEBSITE_DOMAIN}`)
+      - traefik.http.routers.ojo-critico-website.entrypoints=web
+      - traefik.http.services.ojo-critico-website.loadbalancer.server.port=${WEBSITE_PORT:-7003}
     healthcheck:
       test:
         [

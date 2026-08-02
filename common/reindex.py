@@ -18,8 +18,7 @@ from common.db import (
     fetch_all_news,
     fetch_all_verified_articles,
     fetch_cluster_articles,
-    fetch_clusters_with_descriptions,
-    fetch_clusters_without_descriptions,
+    fetch_clusters_by_description,
     init_db,
     update_cluster_metadata,
 )
@@ -37,7 +36,7 @@ from preprocessing.describe import describe_cluster
 
 def backfill_story_descriptions() -> int:
     """Generate descriptions for clusters missing one. Returns count updated."""
-    missing = fetch_clusters_without_descriptions()
+    missing = fetch_clusters_by_description(has_description=False)
     if not missing:
         print("[reindex] no clusters missing descriptions", flush=True)
         return 0
@@ -76,7 +75,7 @@ def reindex_stories() -> int:
         print(f"No existing collection to delete: {STORY_CHROMA_COLLECTION}")
     reset_index_cache()
 
-    clusters = fetch_clusters_with_descriptions()
+    clusters = fetch_clusters_by_description(has_description=True)
     if not clusters:
         print("No story descriptions in database.")
         return 0

@@ -11,11 +11,20 @@ function apiBaseUrl(): string {
   return base
 }
 
+function apiHeaders(): HeadersInit {
+  const key = process.env.WEBSITE_API_KEY?.trim()
+  if (!key) {
+    throw new Error('WEBSITE_API_KEY is not set')
+  }
+  return { Authorization: `Bearer ${key}` }
+}
+
 async function fetchArticles(category?: string): Promise<Article[]> {
   const query = category
     ? `?${new URLSearchParams({ category }).toString()}`
     : ''
   const res = await fetch(`${apiBaseUrl()}/api/articles${query}`, {
+    headers: apiHeaders(),
     next: { revalidate: 60 },
   })
   if (!res.ok) {
@@ -43,6 +52,7 @@ export async function getArticlesByCategory(
 
 export async function getPublishedSlugs(): Promise<ArticleSlug[]> {
   const res = await fetch(`${apiBaseUrl()}/api/articles/slugs`, {
+    headers: apiHeaders(),
     next: { revalidate: 60 },
   })
   if (!res.ok) {
@@ -56,7 +66,7 @@ export async function getArticleBySlug(
 ): Promise<Article | null> {
   const res = await fetch(
     `${apiBaseUrl()}/api/articles/${encodeURIComponent(slug)}`,
-    { next: { revalidate: 60 } }
+    { headers: apiHeaders(), next: { revalidate: 60 } }
   )
   if (res.status === 404) {
     return null

@@ -7,8 +7,6 @@ import re
 from collections.abc import Callable, Sequence
 from typing import Any, TypeVar
 
-import httpx
-
 from common.config import (
     DEEPINFRA_API_KEY,
     DEEPINFRA_BASE_URL,
@@ -16,6 +14,7 @@ from common.config import (
     HOMEPAGE_LIST_COUNT,
     HOMEPAGE_SECONDARY_COUNT,
 )
+from common.deepinfra_chat import DEFAULT_MAX_RETRIES, chat_completion
 
 logger = logging.getLogger(__name__)
 
@@ -106,29 +105,19 @@ def llm_pick_lead_slug(candidates: Sequence[dict[str, Any]]) -> str:
         + "\n\nResponde solo con el slug."
     )
 
-    url = f"{DEEPINFRA_BASE_URL.rstrip('/')}/chat/completions"
-    payload = {
-        "model": DEEPINFRA_MODEL,
-        "temperature": 0,
-        "max_tokens": 64,
-        "chat_template_kwargs": {"enable_thinking": False},
-        "messages": [
+    content = chat_completion(
+        [
             {"role": "system", "content": _TIEBREAK_SYSTEM},
             {"role": "user", "content": user_prompt},
         ],
-    }
-    headers = {
-        "Authorization": f"Bearer {key}",
-        "Content-Type": "application/json",
-    }
-    with httpx.Client(timeout=30.0) as client:
-        response = client.post(url, json=payload, headers=headers)
-        response.raise_for_status()
-        data = response.json()
-    content = (
-        data.get("choices", [{}])[0]
-        .get("message", {})
-        .get("content", "")
+        api_key=key,
+        model=DEEPINFRA_MODEL,
+        timeout=30.0,
+        max_retries=DEFAULT_MAX_RETRIES,
+        base_url=DEEPINFRA_BASE_URL,
+        temperature=0,
+        max_tokens=64,
+        chat_template_kwargs={"enable_thinking": False},
     )
     text = str(content or "").strip()
     match = _SLUG_RE.search(text.casefold().replace("_", "-"))

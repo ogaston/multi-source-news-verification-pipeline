@@ -1,222 +1,77 @@
-# Local development — no Traefik. Publish ports on localhost.
-# Usage: docker compose -f docker-compose.local.yml up -d --build
+# Usage: docker compose -f docker-compose.yml -f docker-compose.local.yml up -d --build
+#
+# Scheduler cadence (America/Santo_Domingo, see deploy/crontab):
+#   ingest      — every 3 hours
+#   preprocess  — every 3 days at 05:15
+#   story_audit — every 3 days at 05:30
 #
 # MCP:     http://localhost:7000/mcp  (Authorization: Bearer $MCP_API_KEY)
 # Admin:   http://localhost:7001/admin
 # API:     http://localhost:7002/api/articles
 # Website: http://localhost:7003
 # Schema migrate runs automatically via the `migrate` service on `up`.
-# Data migrate:    docker compose -f docker-compose.local.yml run --rm scheduler python -m scripts.migrate_sqlite_to_postgres
-# One-shot ingest:     docker compose -f docker-compose.local.yml run --rm scheduler python -m ingestion.ingestor
-# One-shot preprocess: docker compose -f docker-compose.local.yml run --rm scheduler python -m preprocessing.runner
-# One-shot story-audit: docker compose -f docker-compose.local.yml run --rm scheduler python -m agents.story_audit
+# One-shot ingest:     docker compose -f docker-compose.yml -f docker-compose.local.yml run --rm scheduler python -m ingestion.ingestor
+# One-shot preprocess: docker compose -f docker-compose.yml -f docker-compose.local.yml run --rm scheduler python -m preprocessing.runner
+# One-shot story-audit: docker compose -f docker-compose.yml -f docker-compose.local.yml run --rm scheduler python -m audit.story_audit
 
 services:
   postgres:
-    image: postgres:16-alpine
-    container_name: news-pipeline-postgres-local
-    restart: unless-stopped
-    environment:
-      POSTGRES_USER: ${POSTGRES_USER:-news}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-news}
-      POSTGRES_DB: ${POSTGRES_DB:-news}
+    container_name: ojo-critico-postgres-local
     ports:
       - "5432:5432"
     volumes:
-      - postgres-data:/var/lib/postgresql/data
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-news} -d ${POSTGRES_DB:-news}"]
-      interval: 5s
-      timeout: 5s
-      retries: 10
-      start_period: 10s
+      # Creates news_test on first volume init only. Existing volumes:
+      # docker compose -f docker-compose.yml -f docker-compose.local.yml exec postgres \
+      #   psql -U news -d news -c 'CREATE DATABASE news_test;'
+      - ./deploy/postgres/create-news-test.sql:/docker-entrypoint-initdb.d/01-create-news-test.sql:ro
 
   migrate:
-    build: .
-    image: news-pipeline:latest
-    container_name: news-pipeline-migrate-local
-    env_file:
-      - .env
-    environment:
-      DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-news}:${POSTGRES_PASSWORD:-news}@postgres:5432/${POSTGRES_DB:-news}
-    depends_on:
-      postgres:
-        condition: service_healthy
-    command: ["alembic", "upgrade", "head"]
-    restart: "no"
+    container_name: ojo-critico-migrate-local
 
   mcp:
-    build: .
-    image: news-pipeline:latest
-    container_name: news-pipeline-mcp-local
-    restart: unless-stopped
-    env_file:
-      - .env
-    environment:
-      DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-news}:${POSTGRES_PASSWORD:-news}@postgres:5432/${POSTGRES_DB:-news}
-      CHROMA_PATH: /data/chroma_db
-      DATA_DIR: /data/debug_json
-      HF_HOME: /opt/hf_cache
-      MCP_HOST: 0.0.0.0
-      MCP_PORT: ${MCP_PORT:-7000}
-      MCP_TRANSPORT: streamable-http
-      MCP_API_KEY: ${MCP_API_KEY:-5cfb757b93c423b4bd8fcc6c65a5139304978503d5a1be38}
+    container_name: ojo-critico-mcp-local
     ports:
       - "${MCP_PORT:-7000}:${MCP_PORT:-7000}"
-    volumes:
-      - pipeline-data:/data
-    depends_on:
-      postgres:
-        condition: service_healthy
-      migrate:
-        condition: service_completed_successfully
-    command: ["python", "-m", "mcp_app.server"]
-    healthcheck:
-      test:
-        [
-          "CMD-SHELL",
-          "python -c \"import socket; s=socket.create_connection(('127.0.0.1', int(__import__('os').environ.get('MCP_PORT','7000'))), 2); s.close()\"",
-        ]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-      start_period: 30s
+    networks: !override
+      - default
+    labels: !override []
 
   scheduler:
-    build: .
-    image: news-pipeline:latest
-    container_name: news-pipeline-scheduler-local
-    restart: unless-stopped
-    env_file:
-      - .env
+    container_name: ojo-critico-scheduler-local
     environment:
-      DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-news}:${POSTGRES_PASSWORD:-news}@postgres:5432/${POSTGRES_DB:-news}
-      DB_NAME: /data/dominican_news_repository.db
       DEFAULT_URL_LIMIT: ${DEFAULT_URL_LIMIT:-15}
-      CHROMA_PATH: /data/chroma_db
-      DATA_DIR: /data/debug_json
-      ARTICLE_IMAGES_DIR: /data/article_images
-      PUBLIC_API_URL: ${PUBLIC_API_URL:-http://localhost:7002}
-      HF_HOME: /opt/hf_cache
-      TZ: America/Santo_Domingo
-    volumes:
-      - pipeline-data:/data
-    depends_on:
-      postgres:
-        condition: service_healthy
-      migrate:
-        condition: service_completed_successfully
-    command: ["/usr/local/bin/supercronic", "/app/deploy/crontab"]
 
   admin:
-    build:
-      context: .
-      dockerfile: admin/Dockerfile
-    image: news-pipeline-admin:latest
-    container_name: news-pipeline-admin-local
-    restart: unless-stopped
-    env_file:
-      - .env
+    container_name: ojo-critico-admin-local
+    ports:
+      - "${ADMIN_PORT:-7001}:${ADMIN_PORT:-7001}"
     environment:
-      DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-news}:${POSTGRES_PASSWORD:-news}@postgres:5432/${POSTGRES_DB:-news}
-      ADMIN_HOST: 0.0.0.0
-      ADMIN_PORT: ${ADMIN_PORT:-7001}
       ADMIN_USERNAME: ${ADMIN_USERNAME:-admin}
       ADMIN_PASSWORD: ${ADMIN_PASSWORD:-changeme}
       ADMIN_SECRET_KEY: ${ADMIN_SECRET_KEY:-local-dev-secret-change-me}
-    ports:
-      - "${ADMIN_PORT:-7001}:${ADMIN_PORT:-7001}"
-    depends_on:
-      postgres:
-        condition: service_healthy
-      migrate:
-        condition: service_completed_successfully
-    command:
-      [
-        "uvicorn",
-        "admin.app:app",
-        "--host",
-        "0.0.0.0",
-        "--port",
-        "${ADMIN_PORT:-7001}",
-      ]
-    healthcheck:
-      test:
-        [
-          "CMD-SHELL",
-          "python -c \"import socket; s=socket.create_connection(('127.0.0.1', int(__import__('os').environ.get('ADMIN_PORT','7001'))), 2); s.close()\"",
-        ]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-      start_period: 15s
+    networks: !override
+      - default
+    labels: !override []
 
   api:
-    build:
-      context: .
-      dockerfile: api/Dockerfile
-    image: news-pipeline-api:latest
-    container_name: news-pipeline-api-local
-    restart: unless-stopped
-    env_file:
-      - .env
-    environment:
-      DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-news}:${POSTGRES_PASSWORD:-news}@postgres:5432/${POSTGRES_DB:-news}
-      API_PORT: ${API_PORT:-7002}
-      API_USE_DB: ${API_USE_DB:-false}
-      WEBSITE_CORS_ORIGINS: ${WEBSITE_CORS_ORIGINS:-http://localhost:7003}
-      ARTICLE_IMAGES_DIR: /data/article_images
-      PUBLIC_API_URL: ${PUBLIC_API_URL:-http://localhost:7002}
+    container_name: ojo-critico-api-local
     ports:
       - "${API_PORT:-7002}:${API_PORT:-7002}"
-    volumes:
-      - pipeline-data:/data
-    depends_on:
-      postgres:
-        condition: service_healthy
-      migrate:
-        condition: service_completed_successfully
-    command:
-      [
-        "uvicorn",
-        "api.app:app",
-        "--host",
-        "0.0.0.0",
-        "--port",
-        "${API_PORT:-7002}",
-      ]
-    healthcheck:
-      test:
-        [
-          "CMD-SHELL",
-          "python -c \"import socket; s=socket.create_connection(('127.0.0.1', int(__import__('os').environ.get('API_PORT','7002'))), 2); s.close()\"",
-        ]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-      start_period: 15s
+    environment:
+      WEBSITE_CORS_ORIGINS: ${WEBSITE_CORS_ORIGINS:-http://localhost:7003}
+    networks: !override
+      - default
+    labels: !override []
 
   website:
+    container_name: ojo-critico-website-local
     build:
-      context: ./website
       args:
-        WEBSITE_API_URL: ${WEBSITE_API_URL:-http://api:7002}
         WEBSITE_URL: ${WEBSITE_URL:-http://localhost:7003}
-    image: news-pipeline-website:latest
-    container_name: news-pipeline-website-local
-    restart: unless-stopped
-    environment:
-      PORT: ${WEBSITE_PORT:-7003}
-      WEBSITE_API_URL: ${WEBSITE_API_URL:-http://api:7002}
-      WEBSITE_URL: ${WEBSITE_URL:-http://localhost:7003}
     ports:
       - "${WEBSITE_PORT:-7003}:${WEBSITE_PORT:-7003}"
-    depends_on:
-      api:
-        condition: service_healthy
-
-volumes:
-  pipeline-data:
-    driver: local
-  postgres-data:
-    driver: local
+    environment:
+      WEBSITE_URL: ${WEBSITE_URL:-http://localhost:7003}
+    networks: !override
+      - default
+    labels: !override []

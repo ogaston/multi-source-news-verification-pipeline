@@ -63,10 +63,10 @@ Resource: `news://verified/{cluster_id}` — one verified article as text.
 When `MCP_TRANSPORT` is `streamable-http` or `sse`, clients must send:
 
 ```http
-Authorization: Bearer 5cfb757b93c423b4bd8fcc6c65a5139304978503d5a1be38
+Authorization: Bearer <MCP_API_KEY>
 ```
 
-The token is intentionally hardcoded so the MCP endpoint stays free to use without a private key exchange. Override `MCP_API_KEY` in `.env` if you want a private deployment.
+Set `MCP_API_KEY` in `.env`. The configured token is shown on the MCP `/` landing page for clients that need to connect.
 
 ## Deploy (My personal VPS)
 

@@ -22,12 +22,8 @@ from common.config import (
 )
 
 _embed_model: HuggingFaceEmbedding | None = None
-_vector_store: ChromaVectorStore | None = None
-_index: VectorStoreIndex | None = None
-_story_vector_store: ChromaVectorStore | None = None
-_story_index: VectorStoreIndex | None = None
-_verified_vector_store: ChromaVectorStore | None = None
-_verified_index: VectorStoreIndex | None = None
+_vector_stores: dict[str, ChromaVectorStore] = {}
+_indexes: dict[str, VectorStoreIndex] = {}
 _splitter: SentenceSplitter | None = None
 
 
@@ -88,131 +84,84 @@ def _chroma_client() -> chromadb.PersistentClient:
     return chromadb.PersistentClient(path=CHROMA_PATH)
 
 
-def _get_chroma_collection():
-    return _chroma_client().get_or_create_collection(name=CHROMA_COLLECTION)
+def _get_chroma_collection(collection_name: str = CHROMA_COLLECTION):
+    return _chroma_client().get_or_create_collection(name=collection_name)
 
 
-def _get_story_chroma_collection():
-    return _chroma_client().get_or_create_collection(name=STORY_CHROMA_COLLECTION)
+def _get_vector_store(collection_name: str) -> ChromaVectorStore:
+    if collection_name not in _vector_stores:
+        _vector_stores[collection_name] = ChromaVectorStore(
+            chroma_collection=_get_chroma_collection(collection_name)
+        )
+    return _vector_stores[collection_name]
 
 
-def _get_verified_chroma_collection():
-    return _chroma_client().get_or_create_collection(name=VERIFIED_CHROMA_COLLECTION)
+def _get_index(collection_name: str) -> VectorStoreIndex:
+    if collection_name not in _indexes:
+        vector_store = _get_vector_store(collection_name)
+        storage_context = StorageContext.from_defaults(vector_store=vector_store)
+        _indexes[collection_name] = VectorStoreIndex.from_vector_store(
+            vector_store,
+            storage_context=storage_context,
+            embed_model=_get_embed_model(),
+        )
+    return _indexes[collection_name]
 
 
 def get_vector_store() -> ChromaVectorStore:
-    global _vector_store
-    if _vector_store is None:
-        _vector_store = ChromaVectorStore(chroma_collection=_get_chroma_collection())
-    return _vector_store
+    return _get_vector_store(CHROMA_COLLECTION)
 
 
 def get_index() -> VectorStoreIndex:
-    global _index
-    if _index is None:
-        storage_context = StorageContext.from_defaults(
-            vector_store=get_vector_store()
-        )
-        _index = VectorStoreIndex.from_vector_store(
-            get_vector_store(),
-            storage_context=storage_context,
-            embed_model=_get_embed_model(),
-        )
-    return _index
+    return _get_index(CHROMA_COLLECTION)
 
 
 def get_story_vector_store() -> ChromaVectorStore:
-    global _story_vector_store
-    if _story_vector_store is None:
-        _story_vector_store = ChromaVectorStore(
-            chroma_collection=_get_story_chroma_collection()
-        )
-    return _story_vector_store
+    return _get_vector_store(STORY_CHROMA_COLLECTION)
 
 
 def get_story_index() -> VectorStoreIndex:
-    global _story_index
-    if _story_index is None:
-        storage_context = StorageContext.from_defaults(
-            vector_store=get_story_vector_store()
-        )
-        _story_index = VectorStoreIndex.from_vector_store(
-            get_story_vector_store(),
-            storage_context=storage_context,
-            embed_model=_get_embed_model(),
-        )
-    return _story_index
+    return _get_index(STORY_CHROMA_COLLECTION)
 
 
 def get_verified_vector_store() -> ChromaVectorStore:
-    global _verified_vector_store
-    if _verified_vector_store is None:
-        _verified_vector_store = ChromaVectorStore(
-            chroma_collection=_get_verified_chroma_collection()
-        )
-    return _verified_vector_store
+    return _get_vector_store(VERIFIED_CHROMA_COLLECTION)
 
 
 def get_verified_index() -> VectorStoreIndex:
-    global _verified_index
-    if _verified_index is None:
-        storage_context = StorageContext.from_defaults(
-            vector_store=get_verified_vector_store()
-        )
-        _verified_index = VectorStoreIndex.from_vector_store(
-            get_verified_vector_store(),
-            storage_context=storage_context,
-            embed_model=_get_embed_model(),
-        )
-    return _verified_index
+    return _get_index(VERIFIED_CHROMA_COLLECTION)
 
 
 def reset_index_cache() -> None:
     """Clear cached store/index (e.g. after deleting the collection)."""
-    global _vector_store, _index, _story_vector_store, _story_index
-    global _verified_vector_store, _verified_index
-    _vector_store = None
-    _index = None
-    _story_vector_store = None
-    _story_index = None
-    _verified_vector_store = None
-    _verified_index = None
+    _vector_stores.clear()
+    _indexes.clear()
+
+
+def _delete_index(collection_name: str) -> bool:
+    try:
+        _chroma_client().delete_collection(collection_name)
+        return True
+    except Exception:
+        return False
+    finally:
+        _vector_stores.pop(collection_name, None)
+        _indexes.pop(collection_name, None)
 
 
 def delete_collection() -> bool:
     """Delete the Chroma collection if it exists. Returns True if deleted."""
-    client = _chroma_client()
-    try:
-        client.delete_collection(CHROMA_COLLECTION)
-        reset_index_cache()
-        return True
-    except Exception:
-        reset_index_cache()
-        return False
+    return _delete_index(CHROMA_COLLECTION)
 
 
 def delete_story_index() -> bool:
     """Delete the story Chroma collection if it exists. Returns True if deleted."""
-    client = _chroma_client()
-    try:
-        client.delete_collection(STORY_CHROMA_COLLECTION)
-        reset_index_cache()
-        return True
-    except Exception:
-        reset_index_cache()
-        return False
+    return _delete_index(STORY_CHROMA_COLLECTION)
 
 
 def delete_verified_index() -> bool:
     """Delete the verified Chroma collection if it exists. Returns True if deleted."""
-    client = _chroma_client()
-    try:
-        client.delete_collection(VERIFIED_CHROMA_COLLECTION)
-        reset_index_cache()
-        return True
-    except Exception:
-        reset_index_cache()
-        return False
+    return _delete_index(VERIFIED_CHROMA_COLLECTION)
 
 
 def delete_article_chunks(article_id: str) -> None:
@@ -303,15 +252,15 @@ def retrieve_chunks(topic: str, n_results: int) -> list[RetrievedChunk]:
     return chunks
 
 
-def index_story(cluster_id: str, description: str, created_at: str) -> None:
-    """Upsert one vector document per story description."""
-    text = (description or "").strip()
-    if not text:
-        return
-
-    collection = _get_story_chroma_collection()
+def _upsert_single_document(
+    collection_name: str,
+    document_id: str,
+    text: str,
+    metadata: dict[str, Any],
+) -> None:
+    collection = _get_chroma_collection(collection_name)
     try:
-        collection.delete(ids=[cluster_id])
+        collection.delete(ids=[document_id])
     except Exception:
         pass
 
@@ -319,13 +268,27 @@ def index_story(cluster_id: str, description: str, created_at: str) -> None:
 
     node = TextNode(
         text=text,
-        id_=cluster_id,
-        metadata={
+        id_=document_id,
+        metadata=metadata,
+    )
+    _get_index(collection_name).insert_nodes([node])
+
+
+def index_story(cluster_id: str, description: str, created_at: str) -> None:
+    """Upsert one vector document per story description."""
+    text = (description or "").strip()
+    if not text:
+        return
+
+    _upsert_single_document(
+        STORY_CHROMA_COLLECTION,
+        cluster_id,
+        text,
+        {
             "cluster_id": cluster_id,
             "created_at": created_at or "",
         },
     )
-    get_story_index().insert_nodes([node])
 
 
 def retrieve_stories(query: str, n_results: int) -> list[RetrievedStory]:
@@ -367,25 +330,17 @@ def index_verified_article(
     if not text:
         return
 
-    collection = _get_verified_chroma_collection()
-    try:
-        collection.delete(ids=[cluster_id])
-    except Exception:
-        pass
-
-    from llama_index.core.schema import TextNode
-
-    node = TextNode(
-        text=text,
-        id_=cluster_id,
-        metadata={
+    _upsert_single_document(
+        VERIFIED_CHROMA_COLLECTION,
+        cluster_id,
+        text,
+        {
             "cluster_id": cluster_id,
             "title": title,
             "date": date or "",
             "status": status or "draft",
         },
     )
-    get_verified_index().insert_nodes([node])
 
 
 def retrieve_verified(query: str, n_results: int) -> list[RetrievedVerified]:

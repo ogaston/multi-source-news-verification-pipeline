@@ -11,6 +11,11 @@ https:__*.json
 .env.*
 .pytest_cache
 .mypy_cache
+.ruff_cache
+.claude
+.DS_Store
+website/node_modules
+website/.next
 ROADMAP.md
 *.md
 !requirements.txt
