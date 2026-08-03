@@ -33,6 +33,9 @@ export function ArticleDetail({ article }: { article: Article }) {
             alt={article.imageAlt || article.title}
             width={1200}
             height={675}
+            priority
+            fetchPriority="high"
+            quality={70}
             sizes="(max-width: 768px) 100vw, 768px"
             className="aspect-[16/9] w-full object-cover"
           />

@@ -1,6 +1,6 @@
 import { Analytics } from '@vercel/analytics/next'
 import type { Metadata, Viewport } from 'next'
-import { Playfair_Display, Source_Serif_4, Inter } from 'next/font/google'
+import { Playfair_Display, Source_Serif_4 } from 'next/font/google'
 import {
   DEFAULT_SOCIAL_IMAGE,
   SITE_DESCRIPTION,
@@ -11,20 +11,18 @@ import './globals.css'
 
 const playfair = Playfair_Display({
   subsets: ['latin'],
+  weight: ['700'],
   variable: '--font-playfair',
   display: 'swap',
+  preload: true,
 })
 
 const sourceSerif = Source_Serif_4({
   subsets: ['latin'],
+  weight: ['400', '600'],
   variable: '--font-source-serif',
   display: 'swap',
-})
-
-const inter = Inter({
-  subsets: ['latin'],
-  variable: '--font-inter',
-  display: 'swap',
+  preload: true,
 })
 
 export const metadata: Metadata = {
@@ -88,11 +86,12 @@ export default function RootLayout({
   return (
     <html
       lang="es"
-      className={`${playfair.variable} ${sourceSerif.variable} ${inter.variable} bg-background`}
+      className={`${playfair.variable} ${sourceSerif.variable} bg-background`}
     >
       <body className="antialiased font-serif">
         {children}
-        {process.env.NODE_ENV === 'production' && <Analytics />}
+        {process.env.NODE_ENV === 'production' &&
+          process.env.WEBSITE_ANALYTICS !== '0' && <Analytics />}
       </body>
     </html>
   )

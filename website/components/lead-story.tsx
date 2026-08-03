@@ -44,15 +44,19 @@ export function LeadStory({ article }: { article: Article }) {
       </div>
 
       <div className="order-1 md:order-2">
-        <Image
-          src={mediaSrc(article.image)}
-          alt={article.imageAlt || article.title}
-          width={1200}
-          height={900}
-          priority
-          sizes="(max-width: 767px) 100vw, 50vw"
-          className="aspect-[4/3] w-full object-cover"
-        />
+        {article.image ? (
+          <Image
+            src={mediaSrc(article.image)}
+            alt={article.imageAlt || article.title}
+            width={1200}
+            height={900}
+            priority
+            fetchPriority="high"
+            quality={70}
+            sizes="(max-width: 767px) 100vw, 50vw"
+            className="aspect-[4/3] w-full object-cover"
+          />
+        ) : null}
         {article.imageCaption && (
           <p className="mt-2 font-sans text-xs text-muted-foreground">
             {article.imageCaption}

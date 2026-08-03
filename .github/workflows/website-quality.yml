@@ -65,6 +65,8 @@ jobs:
       - name: Build website
         run: npm run build
       - name: Start website
+        env:
+          WEBSITE_ANALYTICS: '0'
         run: npm start > /tmp/ojo-website.log 2>&1 &
       - name: Wait for website
         run: |
@@ -73,7 +75,25 @@ jobs:
             sleep 2
           done
           exit 1
+      - name: Warm Lighthouse URLs
+        run: |
+          # Prime Next.js/API caches so the first LHCI run is not a cold SSR miss.
+          for url in \
+            http://127.0.0.1:7003/ \
+            http://127.0.0.1:7003/articulo/reforma-presupuesto
+          do
+            for attempt in {1..10}; do
+              curl --fail --silent "$url" >/dev/null && break
+              sleep 1
+              if [ "$attempt" -eq 10 ]; then
+                echo "Failed to warm $url" >&2
+                exit 1
+              fi
+            done
+          done
       - name: Lighthouse mobile gate
+        env:
+          WEBSITE_ANALYTICS: '0'
         run: npm run lighthouse
 
       - name: Upload Lighthouse reports

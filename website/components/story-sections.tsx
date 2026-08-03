@@ -19,14 +19,18 @@ export function SecondaryStories({ articles }: { articles: Article[] }) {
     <div className="grid gap-8 sm:grid-cols-2">
       {articles.map((article) => (
         <article key={article.slug} className="flex flex-col">
-          <Image
-            src={mediaSrc(article.image)}
-            alt={article.imageAlt || article.title}
-            width={800}
-            height={500}
-            sizes="(max-width: 639px) 100vw, (max-width: 1023px) 50vw, 33vw"
-            className="aspect-[16/10] w-full object-cover"
-          />
+          {article.image ? (
+            <Image
+              src={mediaSrc(article.image)}
+              alt={article.imageAlt || article.title}
+              width={800}
+              height={500}
+              loading="lazy"
+              quality={65}
+              sizes="(max-width: 639px) 100vw, (max-width: 1023px) 50vw, 33vw"
+              className="aspect-[16/10] w-full object-cover"
+            />
+          ) : null}
           <span className="mt-4 font-sans text-xs uppercase tracking-widest text-primary">
             {article.category}
           </span>

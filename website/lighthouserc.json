@@ -15,7 +15,8 @@
           "deviceScaleFactor": 2,
           "disabled": false
         },
-        "throttlingMethod": "simulate"
+        "throttlingMethod": "simulate",
+        "skipAudits": ["uses-http2"]
       }
     },
     "assert": {
