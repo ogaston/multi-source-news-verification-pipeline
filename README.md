@@ -1,142 +1,56 @@
-# Multi-Source News Verification Pipeline
+# Ojo Crítico — Multi-Source News Verification Pipeline
 
-Ingests Dominican news from multiple outlets, clusters related coverage, runs AI verification/synthesis, and exposes semantic search, story browse, and verified articles over MCP (**PostgreSQL + Chroma + LlamaIndex**). Product site: **Ojo Crítico**.
+Ingests Dominican news from multiple outlets, clusters related coverage, runs AI verification/synthesis, and publishes verified articles. Stack: **PostgreSQL + Chroma + LlamaIndex**; surfaces: website API, MCP, and admin UI.
 
-**Sources:** 
-- Somos Pueblo
-- El Nuevo Diario
-- Listín Diario
-- Diario Libre
-- Hoy
-- Acento
-- Remolacha
-- El Caribe
-- El Nacional
-- El Día
+**Sources:** Somos Pueblo, El Nuevo Diario, Listín Diario, Diario Libre, Hoy, Acento, Remolacha, El Caribe, El Nacional, El Día.
 
-**Layout:** `common/` (config, db, sources), `ingestion/` (scrape + quality gates), `mcp_app/` (MCP server), `preprocessing/` (data clustering), `admin/` (SQLAdmin UI), `agents/` (LangGraph multi-agent demos).
+**Layout:** `common/` (config, db, sources), `ingestion/`, `preprocessing/`, `audit/`, `mcp_app/`, `api/`, `admin/`, `website/`.
 
-## Setup
+## Docs
+
+- [Architecture](docs/architecture.md) — data flow, storage, surfaces, deploy
+- [Methodology](docs/methodology.md) — problem framing and pipeline as method
+- [Design decisions](docs/design-decisions.md) — why key technical choices exist
+
+## Quickstart
 
 ```bash
 python -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
 # crawl4ai / Playwright browser deps as needed for your OS
-```
-
-## Ingest
-
-```bash
-python -m ingestion.ingestor                  # all sources, default --limit 100
-python -m ingestion.ingestor --source Acento --limit 10
-python -m ingestion.ingestor --write-json     # also dump debug JSON under data/
-```
-
-Incremental: URLs already in SQLite are skipped before scrape; after scrape, articles with the same `article_key` (calendar day + source + normalized title) are also skipped.
-
-## MCP (RAG query)
-
-Local stdio (dev):
-
-```bash
-mcp dev mcp_app/server.py
-# or: MCP_TRANSPORT=stdio python -m mcp_app.server
-```
-
-Tools:
-
-- `search_articles(query, limit=5, days_back=7, source=None)` — semantic search across all articles. Returns the best matching **chunk** per article (plus source, date, headline, URL).
-- `search_story(query, limit=5, days_back=7, source=None)` — semantic search across story descriptions; returns matching stories with their member articles.
-- `list_stories(days_back=1, limit=20, source=None)` — browse recent story clusters in compact form (description, sources, headlines). Rolling window by article published date.
-- `get_story(story_id)` — full member articles for one story/cluster (`STORY_ID` from `list_stories` or `search_story`).
-- `list_verified_articles(days_back=1, limit=20, status=None)` — recent synthesized articles (title, date, status, confidence, cluster_id, slug).
-- `get_verified_article(cluster_id)` — full verified body + sources + confidence metadata when set.
-- `search_verified_articles(query, limit=5, days_back=7, status=None)` — semantic search over verified title+body.
-
-Articles are split with LlamaIndex `SentenceSplitter` (`CHUNK_SIZE=512`, `CHUNK_OVERLAP=64`) into Chroma collection `news_index_v2`. Story descriptions are indexed in `story_index`. Verified articles are indexed in `verified_index`.
-
-Resource: `news://verified/{cluster_id}` — one verified article as text.
-
-## Security (HTTP transports)
-
-When `MCP_TRANSPORT` is `streamable-http` or `sse`, clients must send:
-
-```http
-Authorization: Bearer <MCP_API_KEY>
-```
-
-Set `MCP_API_KEY` in `.env`. The configured token is shown on the MCP `/` landing page for clients that need to connect.
-
-## Deploy (My personal VPS)
-
-Three always-on containers share a volume:
-- **mcp** (HTTP MCP behind Traefik)
-- **scheduler** (supercronic: ingest at **06:00 / 12:00 / 18:00 / 22:00 America/Santo_Domingo**, preprocess/clustering every **15 minutes** with Groq `openai/gpt-oss-20b` cluster descriptions, story-audit every **15 minutes**). Ingest skips known URLs and duplicate `article_key` fingerprints (`date` day + source + title).
-- **admin** (SQLAdmin UI behind Traefik on a separate domain)
-
-Prerequisites: Docker Compose, Traefik already running on the external `proxy` network.
-
-```bash
-# once, if missing
-docker network create proxy
 
 cp .env.example .env
-# set MCP_DOMAIN, MCP_API_KEY, ADMIN_DOMAIN, ADMIN_USERNAME, ADMIN_PASSWORD, ADMIN_SECRET_KEY
-# set DEEPINFRA_API_KEY for cluster descriptions; DEEPSEEK_API_KEY for story-audit
+# set DEEPINFRA_API_KEY, DEEPSEEK_API_KEY, FACT_CHECK_SEARCH_API_KEY (or SERPER_API_KEY)
+# for deploy also set MCP_*/ADMIN_*/API_*/WEBSITE_* domain and auth keys
 
-docker compose up -d --build
+docker compose -f docker-compose.yml -f docker-compose.local.yml up -d --build
 ```
 
-- MCP URL: `http://${MCP_DOMAIN}/mcp` (streamable HTTP). Clients must send `Authorization: Bearer <MCP_API_KEY>`.
-- Admin URL: `http://${ADMIN_DOMAIN}/admin` — log in with `ADMIN_USERNAME` / `ADMIN_PASSWORD`.
-- Switch Traefik entrypoint to `websecure` in compose labels if you terminate TLS there.
-- Manual one-shot ingest: `docker compose run --rm scheduler python -m ingestion.ingestor`
-- Manual one-shot preprocess: `docker compose run --rm scheduler python -m preprocessing.runner`
-- Manual one-shot story-audit: `docker compose run --rm scheduler python -m agents.story_audit`
-- First pipeline image build is heavy (Playwright Chromium + embedding model bake-in); the admin image is slim.
+| Service | Local URL |
+|---------|-----------|
+| MCP | `http://localhost:7000/mcp` |
+| Admin | `http://localhost:7001/admin` |
+| API | `http://localhost:7002/api/articles` |
+| Website | `http://localhost:7003` |
+| Postgres | `localhost:5432` (`news`; pytest uses `news_test`) |
 
-## Reindex
+Production (VPS + Traefik): see [Architecture → Deploy](docs/architecture.md#deploy).
 
-Required after changing `EMBED_MODEL`, `CHUNK_SIZE` / `CHUNK_OVERLAP`, or upgrading to the chunked `news_index_v2` collection (old whole-article vectors are incompatible):
+## Pipeline commands
 
 ```bash
+python -m ingestion.ingestor
+python -m preprocessing.runner
+python -m audit.story_audit
 python -m common.reindex
 ```
 
-## Agents (LangGraph)
+## Tests
 
-Story-audit graph (DeepSeek via `agents.llm.get_llm`).
-One module per agent under `agents/` (`claim_extractor`, `fact_checker`,
-`rhetorical_auditor`, `judger`, `analyzer`, `synthesizer`).
-
-`claim_extractor` → `fact_checker` ↘  
-`rhetorical_auditor` → `judger` → `analyzer` → `synthesizer`
-
-The fact checker uses Serper.dev for externally verifiable local, national,
-regional, and international claims. Set `FACT_CHECK_SEARCH_API_KEY` (or
-`SERPER_API_KEY`) before running audits. Queries are scoped with `site:`
-operators and every returned URL is post-filtered against
-`FACT_CHECK_TRUSTED_DOMAINS`; the default includes any `*.gob.do` host, selected
-Latin American fact-checkers, and major international organizations. Search is
-capped by `FACT_CHECK_MAX_SEARCHES_PER_CLUSTER` (default 10), returns at most
-`FACT_CHECK_RESULTS_PER_QUERY` accepted results per claim (default 3), and uses
-a 24-hour process-local cache. Missing keys, provider failures, exhausted
-budgets, and empty trusted results produce `insufficient evidence`, never an
-ungrounded contradiction.
-
-**Default mode** loads unprocessed clusters (`clusters.processed = 0`) whose
-newest member article is within `STORY_AUDIT_MAX_AGE_DAYS` (default 3), ranked
-by member count, in batches of `STORY_AUDIT_BATCH_SIZE` (default 5), audits
-each until none remain, upserts `verified_articles`, and sets `processed = 1`.
-The scheduler runs this every **15 minutes**.
+DB-backed pytest needs `TEST_DATABASE_URL` pointing at `news_test` (never the app `news` DB — the fixture runs `drop_all`).
 
 ```bash
-pip install -r agents/requirements.txt
-# set DEEPSEEK_API_KEY and FACT_CHECK_SEARCH_API_KEY in agents/.env
-# (or root .env for Docker)
-python -m agents.story_audit
-python -m agents.story_audit --batch-size 10
-python -m agents.story_audit --story agents/examples/luis_pie_cluster.txt  # single file
-python -m agents.story_audit --no-save  # dry run
+export TEST_DATABASE_URL=postgresql+psycopg://news:news@localhost:5432/news_test
+pytest -q
 ```
