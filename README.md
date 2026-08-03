@@ -1,6 +1,6 @@
-# Ojo Crítico — Multi-Source News Verification Pipeline
+# Multi-Source News Verification Pipeline (Ojo Crítico)
 
-Ingests Dominican news from multiple outlets, clusters related coverage, runs AI verification/synthesis, and publishes verified articles. Stack: **PostgreSQL + Chroma + LlamaIndex**; surfaces: website API, MCP, and admin UI.
+Ingests Dominican news from multiple outlets, clusters related coverage, runs AI verification/synthesis, and publishes verified articles.
 
 **Sources:** Somos Pueblo, El Nuevo Diario, Listín Diario, Diario Libre, Hoy, Acento, Remolacha, El Caribe, El Nacional, El Día.
 
