@@ -1,5 +1,4 @@
 @import 'tailwindcss';
-@import 'tw-animate-css';
 @import 'shadcn/tailwind.css';
 
 @custom-variant dark (&:is(.dark *));
@@ -163,4 +162,19 @@
   body {
     @apply bg-background text-foreground;
   }
+}
+
+@keyframes more-stories-enter {
+  from {
+    opacity: 0;
+    transform: translateY(0.5rem);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.more-stories-enter {
+  animation: more-stories-enter 0.45s ease-out both;
 }

@@ -19,10 +19,10 @@ const playfair = Playfair_Display({
 
 const sourceSerif = Source_Serif_4({
   subsets: ['latin'],
-  weight: ['400', '600'],
+  weight: ['400'],
   variable: '--font-source-serif',
   display: 'swap',
-  preload: true,
+  preload: false,
 })
 
 export const metadata: Metadata = {

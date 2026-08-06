@@ -1,139 +1,192 @@
 # Architecture
 
-**Ojo Crítico** (technical name: Multi-Source News Verification Pipeline) ingests Dominican news from multiple outlets, clusters related coverage, runs AI verification and synthesis, and exposes the results through three application surfaces.
+Multi-Source News Verification Pipeline — ingests news from multiple sources, clusters related coverage, runs AI verification and synthesis, and exposes the results through three application surfaces.
 
-Related: [Methodology](methodology.md) · [Design decisions](design-decisions.md)
+Related: [Methodology](methodology.md) 
 
-## Data flow
 
-1. **Ingest** (`ingestion/ingestor.py`) — outlet scrapers fetch articles, apply quality gates, deduplicate by URL and `article_key`, and persist to PostgreSQL (`raw_articles`). Each article is chunked and indexed in Chroma collection `news_index_v2`.
+## System Overview
 
-2. **Preprocess / cluster** (`preprocessing/runner.py`) — unprocessed articles for the previous local day are embedded, clustered (average-linkage on cosine distance), and written to `topic_clusters` + `clusters`. Top clusters get LLM-generated descriptions; story vectors land in Chroma `story_index`. Articles are marked processed.
+This is a multi-step pipeline that scrapes text from multiple sources, clusters related topics, runs a set of validation checks, and exposes the results through three application surfaces.
 
-3. **Story audit** (`audit/story_audit.py`) — a LangGraph pipeline audits each unprocessed cluster:
-
-   `claim_extractor` → `fact_checker` ↘  
-   `rhetorical_auditor` ─────────────→ `judger` → `analyzer` → `synthesizer`
-
-   Results upsert into `verified_articles` and index in Chroma `verified_index`. Optional cover images are generated and stored on disk.
-
-4. **Verified articles** — published rows in `verified_articles` (1:1 with `cluster_id`) are the product output consumed by the API, MCP tools, and admin UI.
-
-## Storage
-
-| Layer | Role |
-|---|---|
-| **PostgreSQL** | Source of truth: `raw_articles`, `topic_clusters`, `clusters`, `verified_articles` |
-| **Chroma** (3 collections) | Semantic search: `news_index_v2` (article chunks), `story_index` (cluster descriptions), `verified_index` (synthesized articles) |
-| **Disk** (`/data`) | Chroma persistence, generated article images |
-
-Schema lives in `common/models.py`; data access in `common/db.py`; vector indexing in `common/indexing.py`.
-
-Articles are split with LlamaIndex `SentenceSplitter` (`CHUNK_SIZE=512`, `CHUNK_OVERLAP=64`) into `news_index_v2`. After changing `EMBED_MODEL`, chunk settings, or collection version, run `python -m common.reindex`.
-
-## Application surfaces
-
-| Surface | Path | Audience | Data access |
-|---|---|---|---|
-| **API** | `api/` | Next.js website (`website/`) | PostgreSQL — published verified articles only |
-| **MCP** | `mcp_app/` | External AI clients | Chroma semantic search + PostgreSQL enrichment |
-| **Admin** | `admin/` | Editorial staff | PostgreSQL — full CRUD on all tables via SQLAdmin |
-
-All three share `common/config.py` and the same PostgreSQL engine.
-
-### MCP tools
-
-Local stdio: `mcp dev mcp_app/server.py` (or `MCP_TRANSPORT=stdio python -m mcp_app.server`).
-
-| Tool | Purpose |
-|---|---|
-| `search_articles` | Semantic search over article chunks |
-| `search_story` | Semantic search over story descriptions |
-| `list_stories` | Browse recent story clusters |
-| `get_story` | Full member articles for one cluster |
-| `list_verified_articles` | Recent synthesized articles (metadata) |
-| `get_verified_article` | Full verified body + sources + confidence |
-| `search_verified_articles` | Semantic search over verified title+body |
-
-Resource: `news://verified/{cluster_id}` — one verified article as text.
-
-## Security
-
-When `MCP_TRANSPORT` is `streamable-http` or `sse`, clients must send:
-
-```http
-Authorization: Bearer <MCP_API_KEY>
-```
-
-Set `MCP_API_KEY` in `.env`. The configured token is shown on the MCP `/` landing page.
-
-## Deploy
-
-Seven services share PostgreSQL and a `pipeline-data` volume:
-
-| Service | Role |
-|---------|------|
-| **postgres** | PostgreSQL 16 database |
-| **migrate** | One-shot Alembic schema migration (runs before app services) |
-| **mcp** | Always-on MCP server (streamable HTTP behind Traefik in production) |
-| **scheduler** | supercronic jobs from `deploy/crontab` |
-| **admin** | SQLAdmin UI (Traefik in production) |
-| **api** | Public read API for the website |
-| **website** | Next.js site (SSR fetches from **api**) |
-
-### Scheduler
-
-The `scheduler` container runs **supercronic** on `deploy/crontab` (`TZ=America/Santo_Domingo`):
-
-| Schedule | Job |
-|---|---|
-| Every 3 hours | `python -m ingestion.ingestor` |
-| Every 3 days 05:15 | `python -m preprocessing.runner` |
-| Every 3 days 05:30 | `python -m audit.story_audit` |
-
-Ingest skips known URLs and duplicate `article_key` fingerprints (calendar day + source + normalized title).
-
-### Local development
-
-```bash
-cp .env.example .env
-docker compose -f docker-compose.yml -f docker-compose.local.yml up -d --build
-```
-
-Ports: MCP `7000`, admin `7001`, API `7002`, website `7003`, Postgres `5432`. No Traefik or external `proxy` network required.
-
-### Production (VPS + Traefik)
-
-Prerequisites: Docker Compose, Traefik on the external `proxy` network.
-
-```bash
-docker network create proxy   # once, if missing
-cp .env.example .env
-# set MCP_DOMAIN, MCP_API_KEY, ADMIN_DOMAIN, ADMIN_USERNAME, ADMIN_PASSWORD, ADMIN_SECRET_KEY
-# set API_DOMAIN, API_KEY, WEBSITE_DOMAIN, WEBSITE_URL, WEBSITE_API_KEY
-# set DEEPINFRA_API_KEY, DEEPSEEK_API_KEY, FACT_CHECK_SEARCH_API_KEY (or SERPER_API_KEY)
-
-docker compose up -d --build
-```
-
-- MCP: `http://${MCP_DOMAIN}/mcp` — Bearer `MCP_API_KEY`
-- Admin: `http://${ADMIN_DOMAIN}/admin`
-- API / website: `http://${API_DOMAIN}` and `http://${WEBSITE_DOMAIN}`
-- Manual jobs: `docker compose run --rm scheduler python -m ingestion.ingestor` (or `preprocessing.runner`, `audit.story_audit`)
-
-First **ojo-critico** image build is heavy (Playwright Chromium + embedding model); admin/api/website images are slimmer.
-
-## System diagram
+We can break down the pipeline into 4 main stages:
 
 ```mermaid
-graph LR
-  scheduler[scheduler cron] --> pg[(PostgreSQL)]
-  scheduler --> chroma[(Chroma 3 collections)]
-  pg --> api[api FastAPI]
-  pg --> admin[admin SQLAdmin]
-  pg --> mcp[mcp server]
-  chroma --> mcp
-  api --> web[Next.js website]
-  mcp --> agents[external AI clients]
-  admin --> editor[editorial UI]
+graph TD
+    A[Ingestion] --> B[Preprocessing] --> C[Audit] --> E[Exposition]
 ```
+
+## High-level design principles
+
+The main idea was to create a extensible system that can be flexible to multiple use cases around the same goal: **making the information more reliable and trustworthy.**
+
+To achieve this, we need to follow some design principles:
+
+- I treat long-term data ownership as a core asset, so I avoid putting the system to rely on third-party services that can disappear or change terms overnight. Hence, Postgres holds the persistent data and relationship between the different entities: articles, clusters, and verified output.
+
+- Raw articles still arrive in different shapes from different outlets. Ingestion normalizes them into a shared schema; *clustering* was required to groups same-event coverage into a single story, this is the unit that the rest of the pipeline can audit and publish.
+
+- The surfaces must be decoupled from the core logic to be flexible, we might need to serve the data in different formats or expose it in different ways (as of now, I have a REST API, MCP, and a web app).
+
+- I'm not looking for quantity of articles, I'm looking for quality. The pipeline purpose is to ingest constantly but only cluster and audit the most relevant stories. Plus, I tried to go as low-cost as possible by using open models and cheap services.
+
+## Data model & storage
+
+The data model is simple and straightforward. We have 3 main entities: articles, clusters, and verified output. Plus, three Chroma collections for semantic search.
+
+Postgres owns transactional integrity and admin CRUD; Chroma holds derived vectors for MCP/RAG without denormalizing full text into the search store.
+
+### Postgres tables
+
+Postgres is the source of truth for articles, clusters, and verified output (`common/models.py`, Alembic migrations).
+
+Entity relationships:
+
+```mermaid
+erDiagram
+    raw_articles ||--o{ topic_clusters : "member of"
+    clusters ||--o{ topic_clusters : "contains"
+    clusters ||--o| verified_articles : "produces"
+```
+
+### Chroma collections
+
+Chroma holds three derived vector collections for semantic search (`common/indexing.py`).
+
+| Collection | Default name | Unit of index | Document / text | Metadata |
+|---|---|---|---|---|
+| Raw news chunks | `news_index_v2` | sentence chunks per article (`CHUNK_SIZE=512`, `CHUNK_OVERLAP=64`) | chunk body | `article_id`, `url`, `source`, `title`, `date`, `chunk_index`; node id `{article_id}:{chunk_index}` |
+| Story descriptions | `story_index` | one doc per cluster | cluster `description` | `cluster_id`, `created_at`; id = `cluster_id` |
+| Verified articles | `verified_index` | one doc per verified article | `{title}\n\n{content}` | `cluster_id`, `title`, `date`, `status`; id = `cluster_id` |
+
+Articles are split with LlamaIndex `SentenceSplitter` into `news_index_v2` so retrieval returns the best matching span per article. 
+
+> Changing embed model or chunk settings invalidates vectors; rebuild with: `python -m common.reindex`
+
+## Pipeline stages
+
+### Ingestion
+`python -m ingestion.ingestor`
+
+Fetch articles from configured outlets, normalize into a shared schema, dedupe, then persist to Postgres and chunk-index into Chroma.
+
+For this stage, we need to use [crawl4ai](https://crawl4ai.com/) to discover and scrape articles properly and then we ensure that the article meets a quality gate (length, relevance, etc.) before persisting it to the database.
+
+```mermaid
+flowchart LR
+    S[Outlet providers] --> D[Discover & filter URLs]
+    D --> C[Scrape article]
+    C --> P[Meets quality gate and duplicates check?]
+    P -->|yes| DB[(raw_articles)]
+    P -->|no| Skip[Skip]
+    DB --> IX[Chunk + embed]
+    IX --> CH[(news_index_v2)]
+```
+
+### Preprocessing
+`python -m preprocessing.runner`
+
+Cluster unprocessed time-windowed articles via embedding average-linkage, describe the largest clusters, and index story summaries.
+
+The [Agglomerative Clustering](https://www.geeksforgeeks.org/machine-learning/agglomerative-clustering/) algorithm is a bottom-up approach that starts with each article as a separate cluster and merges clusters that are similar until a distance threshold is reached. Average linkage is the default (less chain-prone than single linkage, less rigid than complete linkage); cosine distance matches the embedding space used elsewhere.
+
+Good to know:
+- The selection of the time window is important to avoid clustering articles that are too far apart in time (works well with a *time window of 3 days*).
+- The cosine distance threshold of *0.27* is the default since it performed well for our use case; change it to fit your needs.
+- Clusters then get LLM descriptions and land in `story_index`.
+
+```mermaid
+flowchart TD
+    A[(raw_articles<br/>processed=0)] --> B[Fetch day window]
+    B --> C[Embed content]
+    C --> D[Agglomerative Clustering]
+    D --> E[(Topic-based clusters)]
+    E --> F[Describe largest clusters<br/> simple LLM]
+    F --> G[Update cluster metadata <br/> become stories]
+    G --> H[(story_index)]
+    E --> I[Mark articles processed]
+```
+
+### Audit
+`python -m audit.story_audit`
+
+Run the LangGraph multi-agent verification over eligible unprocessed clusters (stories), then persist a verified article. Rather than one megaprompt, it's a graph of focused agents (`audit/agents`). 
+
+Here’s what each agent does:
+
+1. **Claim extractor** — Pulls atomic, checkable claims from the story cluster and labels each as `reported` (someone said/published X) or `verifiable_fact` (an independently checkable assertion). Does not verify or rewrite.
+
+2. **Rhetorical auditor** — Flags intent, framing, loaded language, omissions, and fallacies (sensationalism, false balance, etc.). Descriptive only.
+
+3. **Fact checker** — Verifies claims against the cluster and trusted search results from official sources. Marks reported claims as `supported-as-reported` when published in sources; marks verifiable facts as `supported` / `contradicted` / `insufficient evidence` with citations.
+
+4. **Judger** — Merges fact-check + rhetoric into three buckets: `absolutely_false`, `not_verifiable`, and `narrative_to_keep` (what a fair rewrite should retain, with attribution).
+
+5. **Analyzer** — Scores editor-facing trust: overall confidence (`high`/`medium`/`low`/`under_review` but in spanish), per-source reliability, claim counts, and rhetoric risk.
+
+6. **Synthesizer** — Rewrites a neutral Spanish news article from `narrative_to_keep` only, dropping false material and avoiding loaded framing.
+
+**Trusted search constraints** (fact checker):
+- For reducing cost, we use a short result cache.
+- Failures and empty trusted hits yield `insufficient evidence` — never an ungrounded contradiction.
+
+```mermaid
+flowchart TD
+    START([Story text]) --> CE([Claim extractor agent])
+    START --> RA([Rhetorical auditor agent])
+    CE --> FC([Fact checker agent])
+    FC --> TS[Trusted search]
+    TS --> FC
+    FC --> J([Judger agent])
+    RA --> J
+    J --> AN([Analyzer agent])
+    AN --> SY([Synthesizer agent])
+    VA --> VI[(verified_index)]
+    SY --> REL{Relevant article?}
+    REL -->|yes| IMG[Generate cover image]
+    REL -->|no| SKIP[Skip image]
+    SKIP --> VA
+    IMG --> VA[(verified_articles)]
+
+    classDef agent fill:#dbeafe,stroke:#1d4ed8,color:#1e3a8a
+    class CE,RA,FC,J,AN,SY agent
+```
+
+### Exposition
+
+Serve published verified output (and supporting indexes) through three decoupled surfaces. Splitting audiences makes the system more flexible and easier to maintain.
+
+| Surface | Module | Role |
+|---|---|---|
+| **API** | `api/` | Read-only published verified articles for the website |
+| **MCP** | `mcp_app/` | Semantic search and story tools for external AI clients |
+| **Admin** | `admin/` | Full SQLAdmin CRUD for editorial operations |
+| **Website** | `website/` | Next.js reader UI over the API |
+
+```mermaid
+flowchart LR
+    PG[(Postgres)] --> API[REST API]
+    PG --> ADM[Admin SQLAdmin]
+    PG --> MCP[MCP server]
+    CH[(Chroma)] --> MCP
+    API --> WEB[Next.js website]
+    WEB --> HR([Human reader])
+    MCP --> MC[MCP Client]
+    MC --> AG([Agent])
+    ADM --> ED([Editorial review])
+
+    classDef consumer fill:#dbeafe,stroke:#1d4ed8,color:#1e3a8a
+    class HR,AG,ED consumer
+```
+
+## Scheduler
+
+`deploy/crontab` (`TZ=America/Santo_Domingo` / `PIPELINE_TZ`):
+
+Frequent ingest keeps the raw corpus fresh; preprocess and multi-agent audit are LLM- and search-heavy, so they run on a sparse batch cycle.
+
+Recommended cadence:
+- Ingest: Every 3 hours
+- Preprocess: Every 3 days at 05:15
+- Story audit: Every 3 days at 05:30
+

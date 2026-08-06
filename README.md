@@ -1,16 +1,30 @@
-# Multi-Source News Verification Pipeline (Ojo Crítico)
+# Multi-Source News Verification Pipeline
 
-Ingests Dominican news from multiple outlets, clusters related coverage, runs AI verification/synthesis, and publishes verified articles.
+Ingests news from multiple outlets, clusters related coverage, runs AI verification/synthesis, and publishes verified articles. 
 
-**Sources:** Somos Pueblo, El Nuevo Diario, Listín Diario, Diario Libre, Hoy, Acento, Remolacha, El Caribe, El Nacional, El Día.
-
-**Layout:** `common/` (config, db, sources), `ingestion/`, `preprocessing/`, `audit/`, `mcp_app/`, `api/`, `admin/`, `website/`.
+> [!NOTE]
+> For this project (**Ojo Crítico**), we are using the Dominican Republic as a case study but the pipeline is designed to be agnostic to the country. See [Case Study](docs/case-study.md) for more details.
 
 ## Docs
 
-- [Architecture](docs/architecture.md) — data flow, storage, surfaces, deploy
+For more details, see the following docs:
+
+- [Architecture](docs/architecture.md)
+
+**Layout:**
+- `common/` (config, db, sources, utils)
+- `ingestion/` (ingests news from multiple outlets)
+- `preprocessing/` (preprocesses and clusters news)
+- `audit/` (runs fact checks and verifies news)
+- `mcp_app/` (MCP server)
+- `api/` (API)
+- `admin/` (admin UI)
+- `website/` (website)
 
 ## Quickstart
+
+To get started quickly using docker, follow these steps:
+
 
 ```bash
 python -m venv .venv
@@ -33,9 +47,10 @@ docker compose -f docker-compose.yml -f docker-compose.local.yml up -d --build
 | Website | `http://localhost:7003` |
 | Postgres | `localhost:5432` (`news`; pytest uses `news_test`) |
 
-Production (VPS + Traefik): see [Architecture → Deploy](docs/architecture.md#deploy).
 
 ## Pipeline commands
+
+These are the commands to run the pipeline locally.
 
 ```bash
 python -m ingestion.ingestor
@@ -46,7 +61,9 @@ python -m common.reindex
 
 ## Tests
 
-DB-backed pytest needs `TEST_DATABASE_URL` pointing at `news_test` (never the app `news` DB — the fixture runs `drop_all`).
+We use pytest to run against the test database. To run the tests, we need to set the `TEST_DATABASE_URL` environment variable to point at the test database.
+
+> ⚠️ Never the app `news` DB — the fixture runs `drop_all`).
 
 ```bash
 export TEST_DATABASE_URL=postgresql+psycopg://news:news@localhost:5432/news_test
