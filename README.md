@@ -10,8 +10,6 @@ Ingests news from multiple outlets, clusters related coverage, runs AI verificat
 For more details, see the following docs:
 
 - [Architecture](docs/architecture.md)
-- [Methodology](docs/methodology.md)
-- [Design decisions](docs/design-decisions.md)
 
 **Layout:**
 - `common/` (config, db, sources, utils)
