@@ -32,10 +32,7 @@ export function MoreStories({
       )}
 
       {expanded && (
-        <div
-          id="more-stories"
-          className="animate-in fade-in slide-in-from-bottom-2 duration-500"
-        >
+        <div id="more-stories" className="more-stories-enter">
           <div className="flex items-end justify-between gap-6 border-b-2 border-foreground pb-3">
             <div>
               <p className="font-sans text-xs uppercase tracking-widest text-primary">

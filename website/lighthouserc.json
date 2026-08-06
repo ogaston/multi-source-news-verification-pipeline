@@ -5,7 +5,7 @@
         "http://127.0.0.1:7003/",
         "http://127.0.0.1:7003/articulo/reforma-presupuesto"
       ],
-      "numberOfRuns": 1,
+      "numberOfRuns": 3,
       "settings": {
         "formFactor": "mobile",
         "screenEmulation": {
