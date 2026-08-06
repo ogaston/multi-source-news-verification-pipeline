@@ -9,8 +9,6 @@ Ingests Dominican news from multiple outlets, clusters related coverage, runs AI
 ## Docs
 
 - [Architecture](docs/architecture.md) — data flow, storage, surfaces, deploy
-- [Methodology](docs/methodology.md) — problem framing and pipeline as method
-- [Design decisions](docs/design-decisions.md) — why key technical choices exist
 
 ## Quickstart
 

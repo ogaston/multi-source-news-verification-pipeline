@@ -19,3 +19,5 @@ chroma_db/
 # Debug scrape dumps (including accidental root litter)
 https:__*.json
 *.log
+
+website/.lighthouseci/
