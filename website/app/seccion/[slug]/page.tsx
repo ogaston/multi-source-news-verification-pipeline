@@ -5,7 +5,6 @@ import { SiteFooter } from '@/components/site-footer'
 import { SiteHeader } from '@/components/site-header'
 import { getArticlesByCategory } from '@/lib/api'
 import type { Article } from '@/lib/articles'
-import { HOME_REVALIDATE_SECONDS } from '@/lib/cache'
 import { getSection, SECTIONS, sectionHref } from '@/lib/categories'
 import {
   articlePath,
@@ -18,7 +17,8 @@ type PageProps = {
   params: Promise<{ slug: string }>
 }
 
-export const revalidate = HOME_REVALIDATE_SECONDS
+// Must be a literal — Next.js rejects imported segment config values.
+export const revalidate = 10800 // 3 hours
 export const dynamicParams = false
 
 export function generateStaticParams() {

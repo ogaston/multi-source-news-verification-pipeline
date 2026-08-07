@@ -6,7 +6,6 @@ import { ArticleJsonLd } from '@/components/article-json-ld'
 import { SupportCta } from '@/components/support-cta'
 import { SiteFooter } from '@/components/site-footer'
 import { getArticleBySlug } from '@/lib/api'
-import { ARTICLE_REVALIDATE_SECONDS } from '@/lib/cache'
 import {
   articleImage,
   articlePath,
@@ -19,7 +18,8 @@ type PageProps = {
   params: Promise<{ slug: string }>
 }
 
-export const revalidate = ARTICLE_REVALIDATE_SECONDS
+// Must be a literal — Next.js rejects imported segment config values.
+export const revalidate = 86400 // 1 day
 export const dynamicParams = true
 
 export async function generateMetadata({

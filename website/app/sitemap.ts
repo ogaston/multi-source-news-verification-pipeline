@@ -1,10 +1,10 @@
 import type { MetadataRoute } from 'next'
 import { getPublishedSlugs } from '@/lib/api'
-import { HOME_REVALIDATE_SECONDS } from '@/lib/cache'
 import { SECTIONS, sectionHref } from '@/lib/categories'
 import { absoluteUrl, articlePath } from '@/lib/seo'
 
-export const revalidate = HOME_REVALIDATE_SECONDS
+// Must be a literal — Next.js rejects imported segment config values.
+export const revalidate = 10800 // 3 hours
 
 export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
   const editorialRoutes = ['/metodo', '/codigo-etico', '/contacto']
