@@ -5,7 +5,8 @@ import { ArticleDetail } from '@/components/article-detail'
 import { ArticleJsonLd } from '@/components/article-json-ld'
 import { SupportCta } from '@/components/support-cta'
 import { SiteFooter } from '@/components/site-footer'
-import { getArticleBySlug, getPublishedSlugs } from '@/lib/api'
+import { getArticleBySlug } from '@/lib/api'
+import { ARTICLE_REVALIDATE_SECONDS } from '@/lib/cache'
 import {
   articleImage,
   articlePath,
@@ -18,18 +19,8 @@ type PageProps = {
   params: Promise<{ slug: string }>
 }
 
-export const revalidate = 60
+export const revalidate = ARTICLE_REVALIDATE_SECONDS
 export const dynamicParams = true
-
-export async function generateStaticParams() {
-  try {
-    const articles = await getPublishedSlugs()
-    return articles.map(({ slug }) => ({ slug }))
-  } catch (error) {
-    console.warn('Article API unavailable during static generation', error)
-    return []
-  }
-}
 
 export async function generateMetadata({
   params,

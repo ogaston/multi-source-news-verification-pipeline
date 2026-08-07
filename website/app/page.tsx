@@ -6,13 +6,14 @@ import { MoreStories } from '@/components/more-stories'
 import { SupportCta } from '@/components/support-cta'
 import { SiteFooter } from '@/components/site-footer'
 import { getHomeData } from '@/lib/api'
+import { HOME_REVALIDATE_SECONDS } from '@/lib/cache'
 import {
   DEFAULT_SOCIAL_IMAGE,
   SITE_DESCRIPTION,
   SITE_NAME,
 } from '@/lib/seo'
 
-export const revalidate = 60
+export const revalidate = HOME_REVALIDATE_SECONDS
 
 export const metadata: Metadata = {
   title: { absolute: `${SITE_NAME} — Noticias curadas y sin sesgo` },

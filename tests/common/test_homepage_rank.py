@@ -184,7 +184,9 @@ def _seed_published_with_cluster(
         )
 
 
-def test_fetch_published_articles_orders_by_cluster_size(sqlalchemy_db):
+def test_fetch_published_articles_orders_by_cluster_size_within_window(
+    sqlalchemy_db,
+):
     now = datetime.now(timezone.utc)
     newer = (now - timedelta(hours=1)).isoformat().replace("+00:00", "Z")
     older = (now - timedelta(hours=2)).isoformat().replace("+00:00", "Z")
@@ -211,6 +213,40 @@ def test_fetch_published_articles_orders_by_cluster_size(sqlalchemy_db):
     assert [row["slug"] for row in rows] == ["noticia-grande", "noticia-pequena"]
     assert rows[0]["cluster_size"] == 5
     assert rows[1]["cluster_size"] == 2
+
+
+def test_fetch_published_articles_recent_outranks_older_larger_cluster(
+    sqlalchemy_db,
+):
+    now = datetime.now(timezone.utc)
+    recent = (now - timedelta(hours=1)).isoformat().replace("+00:00", "Z")
+    stale = (now - timedelta(days=5)).isoformat().replace("+00:00", "Z")
+    _seed_published_with_cluster(
+        article_id="v-recent-small",
+        cluster_id="c-recent-small",
+        slug="reciente-pequena",
+        title="Reciente pequeña",
+        member_count=2,
+        sources=["Hoy", "Acento"],
+        created_at=recent,
+    )
+    _seed_published_with_cluster(
+        article_id="v-stale-big",
+        cluster_id="c-stale-big",
+        slug="antigua-grande",
+        title="Antigua grande",
+        member_count=8,
+        sources=["Hoy", "Acento", "Diario Libre", "Listín Diario"],
+        created_at=stale,
+    )
+
+    rows = db.fetch_published_articles(limit=10, max_age_days=3)
+    assert [row["slug"] for row in rows] == [
+        "reciente-pequena",
+        "antigua-grande",
+    ]
+    assert rows[0]["cluster_size"] == 2
+    assert rows[1]["cluster_size"] == 8
 
 
 def test_api_list_applies_lead_tiebreak(sqlalchemy_db, monkeypatch):

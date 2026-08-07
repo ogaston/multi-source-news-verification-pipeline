@@ -5,6 +5,7 @@ import { SiteFooter } from '@/components/site-footer'
 import { SiteHeader } from '@/components/site-header'
 import { getArticlesByCategory } from '@/lib/api'
 import type { Article } from '@/lib/articles'
+import { HOME_REVALIDATE_SECONDS } from '@/lib/cache'
 import { getSection, SECTIONS, sectionHref } from '@/lib/categories'
 import {
   articlePath,
@@ -17,7 +18,7 @@ type PageProps = {
   params: Promise<{ slug: string }>
 }
 
-export const revalidate = 60
+export const revalidate = HOME_REVALIDATE_SECONDS
 export const dynamicParams = false
 
 export function generateStaticParams() {

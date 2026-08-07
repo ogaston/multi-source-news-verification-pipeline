@@ -50,6 +50,9 @@ STORY_AUDIT_BATCH_SIZE = int(os.environ.get("STORY_AUDIT_BATCH_SIZE", "30"))
 # Homepage layout: lead + secondary (imaged) + list.
 HOMEPAGE_SECONDARY_COUNT = int(os.environ.get("HOMEPAGE_SECONDARY_COUNT", "8"))
 HOMEPAGE_LIST_COUNT = int(os.environ.get("HOMEPAGE_LIST_COUNT", "8"))
+# Articles newer than this many days are ranked by cluster importance;
+# older published articles append below by recency.
+HOMEPAGE_RANK_MAX_AGE_DAYS = int(os.environ.get("HOMEPAGE_RANK_MAX_AGE_DAYS", "3"))
 
 
 def get_deepseek_config() -> tuple[str, str, str, int, int, float]:
