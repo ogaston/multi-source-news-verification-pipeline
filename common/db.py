@@ -15,6 +15,7 @@ from sqlalchemy.engine import Engine
 
 from common.config import (
     DATABASE_URL,
+    HOMEPAGE_RANK_MAX_AGE_DAYS,
     PREPROCESS_BATCH_SIZE,
     STORY_AUDIT_MAX_AGE_DAYS,
 )
@@ -580,15 +581,25 @@ _PUBLISHED_SELECT = """
 
 
 def fetch_published_articles(
-    *, limit: int = 100, category: str | None = None
+    *,
+    limit: int = 100,
+    category: str | None = None,
+    max_age_days: int = HOMEPAGE_RANK_MAX_AGE_DAYS,
 ) -> list[dict]:
     """
-    Published verified articles ranked by cluster importance.
+    Published verified articles for the homepage feed.
 
-    Order: cluster_size DESC, source_count DESC, then newest date/created_at.
+    Recent cohort (within max_age_days): cluster_size DESC, source_count DESC,
+    then newest. Older articles append below, newest first.
     """
+    rank_threshold = (
+        datetime.now(timezone.utc) - timedelta(days=max(0, max_age_days))
+    ).date().isoformat()
     category_predicate = ""
-    params: dict[str, Any] = {"limit": limit}
+    params: dict[str, Any] = {
+        "limit": limit,
+        "rank_threshold": rank_threshold,
+    }
     if category:
         category_predicate = (
             "\n              AND LOWER(v.category) = LOWER(:category)"
@@ -600,8 +611,18 @@ def fetch_published_articles(
         + f"""
         WHERE v.status = 'published'{category_predicate}
         ORDER BY
-            cluster_size DESC,
-            source_count DESC,
+            CASE
+                WHEN COALESCE(v.date, v.created_at) >= :rank_threshold
+                THEN 0 ELSE 1
+            END,
+            CASE
+                WHEN COALESCE(v.date, v.created_at) >= :rank_threshold
+                THEN cluster_size ELSE 0
+            END DESC,
+            CASE
+                WHEN COALESCE(v.date, v.created_at) >= :rank_threshold
+                THEN source_count ELSE 0
+            END DESC,
             COALESCE(v.date, v.created_at) DESC
         LIMIT :limit
         """,

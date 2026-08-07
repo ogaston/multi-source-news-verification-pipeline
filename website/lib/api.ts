@@ -1,4 +1,8 @@
 import type { Article, ArticleSlug } from '@/lib/articles'
+import {
+  ARTICLE_REVALIDATE_SECONDS,
+  HOME_REVALIDATE_SECONDS,
+} from '@/lib/cache'
 import { splitHomeArticles, type HomeData } from '@/lib/home'
 
 export type { HomeData }
@@ -25,7 +29,7 @@ async function fetchArticles(category?: string): Promise<Article[]> {
     : ''
   const res = await fetch(`${apiBaseUrl()}/api/articles${query}`, {
     headers: apiHeaders(),
-    next: { revalidate: 60 },
+    next: { revalidate: HOME_REVALIDATE_SECONDS },
   })
   if (!res.ok) {
     throw new Error(`Failed to fetch articles: ${res.status}`)
@@ -53,7 +57,7 @@ export async function getArticlesByCategory(
 export async function getPublishedSlugs(): Promise<ArticleSlug[]> {
   const res = await fetch(`${apiBaseUrl()}/api/articles/slugs`, {
     headers: apiHeaders(),
-    next: { revalidate: 60 },
+    next: { revalidate: HOME_REVALIDATE_SECONDS },
   })
   if (!res.ok) {
     throw new Error(`Failed to fetch article slugs: ${res.status}`)
@@ -66,7 +70,10 @@ export async function getArticleBySlug(
 ): Promise<Article | null> {
   const res = await fetch(
     `${apiBaseUrl()}/api/articles/${encodeURIComponent(slug)}`,
-    { headers: apiHeaders(), next: { revalidate: 60 } }
+    {
+      headers: apiHeaders(),
+      next: { revalidate: ARTICLE_REVALIDATE_SECONDS },
+    }
   )
   if (res.status === 404) {
     return null

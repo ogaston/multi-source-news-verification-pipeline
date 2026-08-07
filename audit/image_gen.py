@@ -29,6 +29,15 @@ _STYLE_BLOCK = (
     "Absolutely no text, letters, numbers, captions, speech bubbles, logos, "
     "watermarks, or readable signage."
 )
+# When the news cannot be shown literally, ask for a dignified reference image.
+_SAFETY_BLOCK = (
+    "Sensitive-content rule: never depict graphic violence, death, sexual assault, "
+    "gore, abuse, or the criminal act itself. If the event involves such content, "
+    "ignore those facts for the visual and generate a respectful reference image "
+    "of the emotional tone instead — for example a sorrowful child, a somber woman, "
+    "or a quiet memorial atmosphere — still grounded in place and topic when relevant. "
+    "Keep the image non-exploitative and suitable for a general news homepage."
+)
 _WHITESPACE_RE = re.compile(r"\s+")
 
 
@@ -57,7 +66,7 @@ def build_image_prompt(
     place: str | None = None,
 ) -> str:
     summary = build_event_summary(title, category=category, place=place)
-    return f"{summary}. {_STYLE_BLOCK}"
+    return f"{summary}. {_STYLE_BLOCK} {_SAFETY_BLOCK}"
 
 
 def public_image_url(article_id: str) -> str:

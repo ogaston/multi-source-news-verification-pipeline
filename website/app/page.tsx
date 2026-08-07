@@ -12,7 +12,8 @@ import {
   SITE_NAME,
 } from '@/lib/seo'
 
-export const revalidate = 60
+// Must be a literal — Next.js rejects imported segment config values.
+export const revalidate = 10800 // 3 hours
 
 export const metadata: Metadata = {
   title: { absolute: `${SITE_NAME} — Noticias curadas y sin sesgo` },

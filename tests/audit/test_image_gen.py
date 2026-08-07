@@ -40,6 +40,10 @@ def test_build_image_prompt_uses_samurai_jack_aesthetic_only():
     assert "samurai warriors" in prompt
     assert "no text" in prompt.lower()
     assert "4:3" in prompt
+    assert "never depict graphic violence" in prompt
+    assert "respectful reference image" in prompt
+    assert "sorrowful child" in prompt
+    assert "somber woman" in prompt
 
 
 def test_public_image_url():
