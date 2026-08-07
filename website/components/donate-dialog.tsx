@@ -1,18 +1,29 @@
 'use client'
 
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import Image from 'next/image'
 import { Heart, X } from 'lucide-react'
 
 const sharedDetails = [
   { label: 'Beneficiario', value: 'Chalas Creations SRL' },
   { label: 'Banco', value: 'Scotiabank' },
+  { label: 'RNC', value: '132-51569-2' },
 ]
 
-const accounts = [
-  { currency: 'USD', number: '0123456789' },
-  { currency: 'DOP', number: '9876543210' },
-]
+const accounts = {
+  USD: {
+    regional: 'DO55NOSC00000000063500022746',
+    number: '63500022746',
+  },
+  DOP: {
+    regional: 'DO77NOSC00000000063500008285',
+    number: '63500008285',
+  },
+} as const
+
+type Currency = keyof typeof accounts
+
+const currencies = Object.keys(accounts) as Currency[]
 
 export function DonateDialog({
   open,
@@ -22,6 +33,8 @@ export function DonateDialog({
   onOpenChange: (open: boolean) => void
 }) {
   const panelRef = useRef<HTMLDivElement>(null)
+  const [currency, setCurrency] = useState<Currency>('USD')
+  const account = accounts[currency]
 
   useEffect(() => {
     if (!open) return
@@ -130,27 +143,61 @@ export function DonateDialog({
             ))}
           </dl>
 
-          <div className="mt-4 grid gap-3 sm:grid-cols-2">
-            {accounts.map((account) => (
-              <div
-                key={account.currency}
-                className="border border-foreground/10 bg-muted/30 p-3"
-              >
+          <div className="mt-4">
+            <div
+              role="tablist"
+              aria-label="Moneda de la cuenta"
+              className="grid grid-cols-2 border border-foreground/10"
+            >
+              {currencies.map((code) => {
+                const selected = currency === code
+                return (
+                  <button
+                    key={code}
+                    type="button"
+                    role="tab"
+                    id={`donate-tab-${code}`}
+                    aria-selected={selected}
+                    aria-controls={`donate-panel-${code}`}
+                    tabIndex={selected ? 0 : -1}
+                    onClick={() => setCurrency(code)}
+                    className={
+                      selected
+                        ? 'bg-foreground px-3 py-2 text-xs font-semibold uppercase tracking-widest text-background'
+                        : 'bg-muted/30 px-3 py-2 text-xs font-semibold uppercase tracking-widest text-muted-foreground transition-colors hover:text-foreground'
+                    }
+                  >
+                    {code}
+                  </button>
+                )
+              })}
+            </div>
+
+            <div
+              role="tabpanel"
+              id={`donate-panel-${currency}`}
+              aria-labelledby={`donate-tab-${currency}`}
+              className="mt-3 space-y-3 border border-foreground/10 bg-muted/30 p-3"
+            >
+              <div>
                 <p className="text-xs font-semibold uppercase tracking-widest text-muted-foreground">
-                  Cuenta {account.currency}
+                  Número de cuenta regional
+                </p>
+                <p className="mt-1 break-all font-medium tabular-nums text-foreground">
+                  {account.regional}
+                </p>
+              </div>
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-widest text-muted-foreground">
+                  Número de cuenta
                 </p>
                 <p className="mt-1 font-medium tabular-nums text-foreground">
                   {account.number}
                 </p>
               </div>
-            ))}
+            </div>
           </div>
         </div>
-
-        <p className="mt-3 text-center text-xs text-muted-foreground font-sans">
-          Datos de transferencia de demostración · cuentas pendientes de
-          verificación
-        </p>
       </div>
     </div>
   )
