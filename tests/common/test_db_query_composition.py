@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
+from datetime import datetime, timedelta, timezone
+
 import common.db as db
+from common.config import HOMEPAGE_RANK_MAX_AGE_DAYS
 
 
 def _capture_queries(monkeypatch):
@@ -68,11 +71,16 @@ def test_fetch_filtered_lists_omit_optional_predicates(monkeypatch):
     db.fetch_verified_articles("2026-08-01", limit=5)
     db.fetch_recent_clusters("2026-08-01", limit=6)
 
+    rank_threshold = (
+        datetime.now(timezone.utc) - timedelta(days=HOMEPAGE_RANK_MAX_AGE_DAYS)
+    ).date().isoformat()
+
     assert len(calls) == 3
     assert ":category" not in calls[0][0]
+    assert ":rank_threshold" in calls[0][0]
     assert ":status" not in calls[1][0]
     assert ":source" not in calls[2][0]
-    assert calls[0][1] == {"limit": 4}
+    assert calls[0][1] == {"limit": 4, "rank_threshold": rank_threshold}
     assert calls[1][1] == {"date_threshold": "2026-08-01", "limit": 5}
     assert calls[2][1] == {"date_threshold": "2026-08-01", "limit": 6}
 
