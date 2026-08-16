@@ -125,6 +125,40 @@ def test_deleting_story_invalidates_only_story_cache(monkeypatch):
     }
 
 
+def test_delete_article_chunks_skips_when_no_existing_ids(monkeypatch):
+    calls = []
+
+    class FakeCollection:
+        def get(self, *, ids=None, where=None, include=None):
+            calls.append(("get", ids, where))
+            return {"ids": []}
+
+        def delete(self, **kwargs):
+            calls.append(("delete", kwargs))
+
+    monkeypatch.setattr(indexing, "_get_chroma_collection", lambda: FakeCollection())
+    indexing.delete_article_chunks("abc123")
+    assert calls == [
+        ("get", [f"abc123:{i}" for i in range(indexing._MAX_CHUNKS_PER_ARTICLE)], None)
+    ]
+
+
+def test_delete_article_chunks_deletes_by_ids_never_where(monkeypatch):
+    deleted = []
+
+    class FakeCollection:
+        def get(self, *, ids=None, where=None, include=None):
+            assert where is None
+            return {"ids": ["abc123:0", "abc123:1"]}
+
+        def delete(self, **kwargs):
+            deleted.append(kwargs)
+
+    monkeypatch.setattr(indexing, "_get_chroma_collection", lambda: FakeCollection())
+    indexing.delete_article_chunks("abc123")
+    assert deleted == [{"ids": ["abc123:0", "abc123:1"]}]
+
+
 def test_story_and_verified_upserts_preserve_public_document_behavior(monkeypatch):
     deleted = []
     inserted = []

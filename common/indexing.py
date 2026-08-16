@@ -164,15 +164,34 @@ def delete_verified_index() -> bool:
     return _delete_index(VERIFIED_CHROMA_COLLECTION)
 
 
-def delete_article_chunks(article_id: str) -> None:
-    collection = _get_chroma_collection()
+_MAX_CHUNKS_PER_ARTICLE = 64
+
+
+def _existing_chunk_ids(collection: Any, article_id: str) -> list[str]:
+    """Find chunk IDs without Chroma where-deletes (those SIGSEGV in chromadb 1.5)."""
+    candidates = [f"{article_id}:{i}" for i in range(_MAX_CHUNKS_PER_ARTICLE)]
     try:
-        collection.delete(where={"article_id": article_id})
+        got = collection.get(ids=candidates, include=[])
+        return [chunk_id for chunk_id in (got.get("ids") or []) if chunk_id]
     except Exception:
         pass
-    # Also clear LlamaIndex document_id refs if present.
     try:
-        get_vector_store().delete(ref_doc_id=article_id)
+        got = collection.get(where={"article_id": article_id}, include=[])
+        return [chunk_id for chunk_id in (got.get("ids") or []) if chunk_id]
+    except Exception:
+        return []
+
+
+def delete_article_chunks(article_id: str) -> None:
+    """Remove prior chunks for an article. Never calls delete(where=...)."""
+    if not article_id:
+        return
+    collection = _get_chroma_collection()
+    ids = _existing_chunk_ids(collection, article_id)
+    if not ids:
+        return
+    try:
+        collection.delete(ids=ids)
     except Exception:
         pass
 
