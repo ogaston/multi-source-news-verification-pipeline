@@ -40,10 +40,8 @@ def test_build_image_prompt_uses_samurai_jack_aesthetic_only():
     assert "samurai warriors" in prompt
     assert "no text" in prompt.lower()
     assert "4:3" in prompt
-    assert "never depict graphic violence" in prompt
-    assert "respectful reference image" in prompt
-    assert "sorrowful child" in prompt
-    assert "somber woman" in prompt
+    assert "no graphic harm" in prompt
+    assert "quiet, respectful scene" in prompt
 
 
 def test_public_image_url():
@@ -75,6 +73,7 @@ def test_generate_article_image_writes_file(tmp_path, monkeypatch):
     assert posted.args[0].endswith("/images/generations")
     assert posted.args[1]["model"] == "black-forest-labs/FLUX-2-klein-4b"
     assert posted.args[1]["size"] == "1024x768"
+    assert "response_format" not in posted.args[1]
     assert "aesthetic of Samurai Jack" in posted.args[1]["prompt"]
     assert "samurai warriors" in posted.args[1]["prompt"]
     assert posted.kwargs["api_key"] == "test-key"

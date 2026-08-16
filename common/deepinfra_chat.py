@@ -79,7 +79,14 @@ def post_json(
                 )
                 time.sleep(wait)
                 continue
-            response.raise_for_status()
+            if not response.is_success:
+                detail = (response.text or "")[:500]
+                raise httpx.HTTPStatusError(
+                    f"{response.status_code} {response.reason_phrase} "
+                    f"for url '{response.url}' body={detail}",
+                    request=response.request,
+                    response=response,
+                )
             return response.json()
 
     raise RuntimeError("DeepInfra request exhausted retries")

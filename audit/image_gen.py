@@ -29,14 +29,11 @@ _STYLE_BLOCK = (
     "Absolutely no text, letters, numbers, captions, speech bubbles, logos, "
     "watermarks, or readable signage."
 )
-# When the news cannot be shown literally, ask for a dignified reference image.
+# Keep covers homepage-safe without words that FLUX-2-max rejects as policy None.
 _SAFETY_BLOCK = (
-    "Sensitive-content rule: never depict graphic violence, death, sexual assault, "
-    "gore, abuse, or the criminal act itself. If the event involves such content, "
-    "ignore those facts for the visual and generate a respectful reference image "
-    "of the emotional tone instead — for example a sorrowful child, a somber woman, "
-    "or a quiet memorial atmosphere — still grounded in place and topic when relevant. "
-    "Keep the image non-exploitative and suitable for a general news homepage."
+    "Keep the image suitable for a general news homepage: no graphic harm. "
+    "If the topic is sensitive, show a quiet, respectful scene grounded in "
+    "place and topic instead of the harmful act."
 )
 _WHITESPACE_RE = re.compile(r"\s+")
 
@@ -107,7 +104,6 @@ def generate_article_image(
         "prompt": prompt,
         "size": size,
         "n": 1,
-        "response_format": "b64_json",
     }
     print(f"[image-gen] calling {model} for article {article_id}...", flush=True)
     try:
