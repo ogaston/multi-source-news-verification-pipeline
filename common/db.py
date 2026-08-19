@@ -113,7 +113,10 @@ def existing_urls(urls: list[str]) -> set[str]:
 
 def save_news(news: dict) -> str | None:
     """
-    Persist article to Postgres and Chroma.
+    Persist article to Postgres only.
+
+    Chroma indexing is deferred to ingest (after Crawl4AI closes) so Chromium
+    and PyTorch/Chroma never share one process — that mix SIGSEGVs on ARM.
     Returns news id, or None if skipped due to article_key collision on a new URL.
     """
     news_id = hashlib.sha256(news["url"].encode()).hexdigest()
@@ -171,18 +174,6 @@ def save_news(news: dict) -> str | None:
             },
         )
 
-    from common.indexing import index_article
-
-    index_article(
-        {
-            "id": news_id,
-            "url": url,
-            "source": source,
-            "title": title,
-            "content": content,
-            "date": date,
-        }
-    )
     return news_id
 
 

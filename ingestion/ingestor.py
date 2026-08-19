@@ -5,6 +5,8 @@ import asyncio
 import json
 import os
 import re
+import subprocess
+import sys
 
 from crawl4ai import AsyncWebCrawler
 
@@ -62,6 +64,46 @@ async def scrape_news(
     return await provider.run(url)
 
 
+def _index_record(prepared: dict, news_id: str) -> dict:
+    return {
+        "id": news_id,
+        "url": prepared["url"],
+        "source": prepared.get("source"),
+        "title": prepared["title"],
+        "content": prepared["content"],
+        "date": prepared["date"],
+    }
+
+
+def index_saved_articles(articles: list[dict]) -> None:
+    """
+    Index saved articles in a fresh interpreter.
+
+    Ingest was SIGSEGVing (exit 139) when HuggingFace/PyTorch/Chroma loaded
+    in the same process as Crawl4AI's Chromium. A subprocess that only
+    imports the index worker keeps those native stacks apart.
+    """
+    if not articles:
+        return
+    print(
+        f"[ingest] indexing {len(articles)} articles in isolated process...",
+        flush=True,
+    )
+    result = subprocess.run(
+        [sys.executable, "-m", "ingestion.index_worker"],
+        input=json.dumps(articles),
+        text=True,
+        check=False,
+    )
+    if result.returncode:
+        print(
+            f"[ingest] isolated indexer exited {result.returncode}",
+            flush=True,
+        )
+    else:
+        print("[ingest] indexing complete", flush=True)
+
+
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Discover and ingest Dominican news into PostgreSQL + Chroma."
@@ -92,6 +134,7 @@ async def run_ingest(
     write_json: bool = False,
 ) -> None:
     init_db()
+    pending_index: list[dict] = []
 
     async with AsyncWebCrawler() as crawler:
         for source in sources:
@@ -131,8 +174,12 @@ async def run_ingest(
                 saved = save_news(prepared)
                 if saved is None:
                     print(f"Skipped {url}: duplicate article_key")
+                    continue
+                print(f"[ingest] saved {source.value} {url}", flush=True)
+                pending_index.append(_index_record(prepared, saved))
 
     print("Scraping complete")
+    index_saved_articles(pending_index)
     print("Done")
 
 

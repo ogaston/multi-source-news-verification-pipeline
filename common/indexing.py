@@ -167,31 +167,22 @@ def delete_verified_index() -> bool:
 _MAX_CHUNKS_PER_ARTICLE = 64
 
 
-def _existing_chunk_ids(collection: Any, article_id: str) -> list[str]:
-    """Find chunk IDs without Chroma where-deletes (those SIGSEGV in chromadb 1.5)."""
-    candidates = [f"{article_id}:{i}" for i in range(_MAX_CHUNKS_PER_ARTICLE)]
-    try:
-        got = collection.get(ids=candidates, include=[])
-        return [chunk_id for chunk_id in (got.get("ids") or []) if chunk_id]
-    except Exception:
-        pass
-    try:
-        got = collection.get(where={"article_id": article_id}, include=[])
-        return [chunk_id for chunk_id in (got.get("ids") or []) if chunk_id]
-    except Exception:
-        return []
+def _chunk_id_candidates(article_id: str) -> list[str]:
+    return [f"{article_id}:{i}" for i in range(_MAX_CHUNKS_PER_ARTICLE)]
 
 
 def delete_article_chunks(article_id: str) -> None:
-    """Remove prior chunks for an article. Never calls delete(where=...)."""
+    """
+    Remove prior chunks for an article.
+
+    chromadb 1.5 rust SIGSEGVs on get() and delete(where=...) on this host,
+    so we only best-effort delete by constructed ids.
+    """
     if not article_id:
         return
     collection = _get_chroma_collection()
-    ids = _existing_chunk_ids(collection, article_id)
-    if not ids:
-        return
     try:
-        collection.delete(ids=ids)
+        collection.delete(ids=_chunk_id_candidates(article_id))
     except Exception:
         pass
 
