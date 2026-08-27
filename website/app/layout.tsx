@@ -92,6 +92,8 @@ export default function RootLayout({
         {children}
         {process.env.NODE_ENV === 'production' &&
           process.env.WEBSITE_ANALYTICS !== '0' && <Analytics />}
+
+        <Script strategy="afterInteractive" src="https://analytics.ogaston.com/script.js" data-website-id="c70588c0-72c5-4e6a-a9ff-e33202a7e612"></Script>
       </body>
     </html>
   )
