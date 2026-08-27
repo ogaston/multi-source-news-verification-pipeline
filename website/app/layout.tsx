@@ -8,6 +8,7 @@ import {
   siteUrl,
 } from '@/lib/seo'
 import './globals.css'
+import Script from "next/script"
 
 const playfair = Playfair_Display({
   subsets: ['latin'],
